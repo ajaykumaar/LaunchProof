@@ -82,7 +82,7 @@ Put the token in the demo via meta / file if you want full payment+load from Bra
 ## Step 4. Brainbase agents (was Step 5 — do this now)
 Skip old Fly load steps. Go straight to agents:
 
-**4a. Tester**
+**4a. Tester** (from repo root: `LaunchProof\` or `launchproof-v1_brainbase\`)
 ```powershell
 cd brainbase\agents\tester
 mkdir .brainbase
@@ -92,17 +92,31 @@ brainbase agent create
 brainbase agent push
 ```
 
-**4b. Triage + Janitor + Chaos + Critic** (Janitor is a no-op without Fly; still push for later)
+**4b. Triage + Janitor + Chaos + Critic** (from repo root each time — Janitor is a no-op without Fly)
 ```powershell
-cd ..\triage;  mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env; brainbase agent create; brainbase agent push
-cd ..\janitor; mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env; brainbase agent create; brainbase agent push
-cd ..\chaos;   mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env; brainbase agent create; brainbase agent push
-cd ..\critic;  mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env; brainbase agent create; brainbase agent push
+# start from LaunchProof\ (or launchproof-v1_brainbase\), not from tester/
+cd brainbase\agents\triage
+mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env
+# edit secrets same as Tester, then:
+brainbase agent create; brainbase agent push
+
+cd ..\janitor
+mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env
+brainbase agent create; brainbase agent push
+
+cd ..\chaos
+mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env
+brainbase agent create; brainbase agent push
+
+cd ..\critic
+mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env
+brainbase agent create; brainbase agent push
 ```
 
-**4c. Orchestration**
+**4c. Orchestration** (must run from `brainbase\`, where `agents\` and `brainbase-orchestration.yaml` live)
 ```powershell
-cd ..\..   # brainbase/
+cd ..\..   # if you are in brainbase\agents\critic → lands in brainbase\
+# or from repo root:  cd brainbase
 brainbase orchestration create
 brainbase orchestration push
 ```

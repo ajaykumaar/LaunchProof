@@ -103,11 +103,19 @@ def merge_into_ui(ui: dict | None, smart: dict | None) -> dict | None:
             ui["appeal_score"] = int(smart["appeal_score"])
         except (TypeError, ValueError):
             ui["appeal_score"] = None
+    for key in ("style", "style_secondary", "style_coherence", "trend_alignment", "uniqueness", "notes"):
+        if smart.get(key) is not None:
+            ui[key] = smart[key]
     ui["smart_ui"] = {
         "status": smart.get("status", "done"),
         "budget": smart.get("budget"),
         "spent": smart.get("spent"),
         "appeal_score": ui.get("appeal_score"),
+        "style": ui.get("style"),
+        "style_secondary": ui.get("style_secondary"),
+        "style_coherence": ui.get("style_coherence"),
+        "trend_alignment": ui.get("trend_alignment"),
+        "uniqueness": ui.get("uniqueness"),
         "scenarios_run": smart.get("scenarios_run"),
         "views_used": smart.get("views_used"),
         "notes": smart.get("notes"),

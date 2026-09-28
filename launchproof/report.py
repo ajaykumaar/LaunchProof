@@ -167,6 +167,14 @@ TEMPLATES = {
                      "and corner radii consistent across the page.",
     "visual_broken_layout": "On {where}, the layout is broken: {detail}. Fix overlapping or cut-off elements at this viewport; check "
                             "absolute positioning, z-index, and overflow hidden that clips content.",
+    "visual_style_incoherent": "On {where}, the UI mixes design languages without a clear primary style: {detail}. Pick one system "
+                               "(type, color, radius, borders, imagery) and apply it end-to-end; demote or remove the conflicting cues.",
+    "visual_style_generic": "On {where}, the look reads as an interchangeable template: {detail}. Add a stronger brand signal "
+                            "(custom type pairing, distinctive color, original imagery) so it does not look like every other SaaS/AI landing page.",
+    "visual_style_dated": "On {where}, the execution feels behind current product-UI taste: {detail}. Either refresh toward a coherent "
+                          "contemporary direction, or lean into a deliberate retro choice and make that commitment obvious.",
+    "visual_style_mismatch": "On {where}, details fight the apparent style: {detail}. Align borders, shadows, type, and color with the "
+                             "named design language, or rename/reframe the style and restyle consistently.",
 }
 
 
@@ -232,6 +240,11 @@ def headline(sc: dict, ui: dict | None, pay: dict | None, load: dict | None) -> 
             appeal = ui["smart_ui"].get("appeal_score")
         if appeal is not None:
             bits.append(f"Visual appeal {int(appeal)}/100")
+        style = ui.get("style")
+        if style is None and isinstance(ui.get("smart_ui"), dict):
+            style = ui["smart_ui"].get("style")
+        if style:
+            bits.append(f"Style: {style}")
     return bits
 
 
@@ -299,10 +312,15 @@ def render_html(run: dict, issues: list[dict], prompts: list[str], sc: dict, bit
     appeal = ui.get("appeal_score")
     if appeal is None and isinstance(ui.get("smart_ui"), dict):
         appeal = ui["smart_ui"].get("appeal_score")
-    appeal_html = (
-        f'<p class="muted">Visual appeal: <b>{int(appeal)}/100</b> (Critic)</p>'
-        if appeal is not None else ""
-    )
+    style = ui.get("style")
+    if style is None and isinstance(ui.get("smart_ui"), dict):
+        style = ui["smart_ui"].get("style")
+    appeal_bits = []
+    if appeal is not None:
+        appeal_bits.append(f"Visual appeal: <b>{int(appeal)}/100</b> (Critic)")
+    if style:
+        appeal_bits.append(f"Style: <b>{e(str(style))}</b>")
+    appeal_html = f'<p class="muted">{" · ".join(appeal_bits)}</p>' if appeal_bits else ""
     cards = []
     for n, (i, p) in enumerate(zip(issues, prompts)):
         shot = f'<img class="shot" loading="lazy" src="{e(i["shot"])}" alt="screenshot">' if i.get("shot") else ""

@@ -1,0 +1,6 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://kafka-llm-service.onrender.com",
+    "ANTHROPIC_AUTH_TOKEN": "bb_live_lYkEEn_CqRgSnaj1BhV2KNI2BeW72YgaJH3wfCCMwlc"
+  }
+}

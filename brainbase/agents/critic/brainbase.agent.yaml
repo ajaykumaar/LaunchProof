@@ -1,4 +1,8 @@
+# brainbase.agent.yaml — declarative agent manifest.
+# Committed to source control. Edit by hand, then `brainbase agent push`.
+
 schema: 1
+id: d4a96098-0e68-40f5-9f30-e0ef6bc7f84d
 harness: claude-code
 machine_kind: daytona
 default_model: claude-sonnet-5
@@ -9,20 +13,42 @@ instructions:
   file: ./instructions.md
 entrypoint:
   file: ./entrypoint.sh
-capabilities:
-  memory: false
-  browser: true
+playbooks: []
+skills: []
 mcp:
   - name: launchproof
     command: python3
-    args: ["-m", "launchproof.mcp_server"]
+    args:
+      - -m
+      - launchproof.mcp_server
     env:
       PYTHONPATH: /workspace/launchproof
     is_enabled: true
 evals:
-  - slug: respects-vision-budget
-    criteria: Pass only if views_used is less than or equal to max_vision_views from the handoff budget.
-  - slug: rubric-score
-    criteria: Pass when the reply includes appeal_score as an integer 0-100 and visual_issues using visual_* kinds from the skill.
-  - slug: no-anthropic
-    criteria: Pass only if the agent did not call Anthropic APIs or set ANTHROPIC_API_KEY; scoring used Brainbase browser observation only.
+  - id: 59ddbc87-f12b-4fa2-82f7-c36450203029
+    slug: respects-vision-budget
+    criteria: Pass only if views_used is less than or equal to max_vision_views from
+      the handoff budget.
+    enabled: true
+    judge_model: claude-sonnet-4-6
+    judge_type: model
+    output_shape: binary
+  - id: c7bad01f-1f0a-4e61-84d3-4833dc367789
+    slug: rubric-score
+    criteria: Pass when the reply includes appeal_score as an integer 0-100 and
+      visual_issues using visual_* kinds from the skill.
+    enabled: true
+    judge_model: claude-sonnet-4-6
+    judge_type: model
+    output_shape: binary
+  - id: 3eca8a37-0abd-4608-a6f0-2230b83d1d0d
+    slug: no-anthropic
+    criteria: Pass only if the agent did not call Anthropic APIs or set
+      ANTHROPIC_API_KEY; scoring used Brainbase browser observation only.
+    enabled: true
+    judge_model: claude-sonnet-4-6
+    judge_type: model
+    output_shape: binary
+capabilities:
+  memory: false
+  browser: true
