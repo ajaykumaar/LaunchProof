@@ -179,3 +179,43 @@ def test_mcp_tools_record_a_journey_the_cli_can_replay(buggy_shop, tmp_path, mon
     rep = asyncio.run(run_payment_check(buggy_shop + "/", tmp_path / "run", use_agent=False, journey_actions=actions))
     assert rep.driver == "recorded"
     assert {c.case: c.outcome for c in rep.cases}["success"] == "paid"
+
+
+def _start_dummy() -> tuple[subprocess.Popen, str]:
+    port = _free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "dummy_site.app:app", "--port", str(port)],
+                            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(50):
+        try:
+            httpx.get(url + "/signup", timeout=1)
+            return proc, url
+        except httpx.HTTPError:
+            time.sleep(0.2)
+    proc.kill()
+    raise RuntimeError("dummy site did not start")
+
+
+@pytest.fixture
+def stackbolt():
+    proc, url = _start_dummy()
+    yield url
+    proc.kill()
+
+
+def test_signup_check_succeeds_on_stackbolt(stackbolt, tmp_path):
+    from launchproof.signup_check import run_signup_check
+    rep = asyncio.run(run_signup_check(stackbolt + "/", tmp_path, run_id="e2e-su"))
+    assert rep.reached_form and rep.submitted and rep.success
+    assert rep.validation_ok
+    assert rep.issues == []
+    assert any(i.endswith("signup-after.png") for i in rep.screenshots) or rep.screenshots
+
+
+def test_dummy_ui_still_flags_planted_bugs(stackbolt, tmp_path):
+    from launchproof.ui_check import run_ui_check
+    rep = asyncio.run(run_ui_check(stackbolt + "/", tmp_path, max_pages=8, delay_s=0))
+    kinds = {i["kind"] for i in rep.issues}
+    assert "horizontal_overflow" in kinds
+    assert "broken_images" in kinds
+    assert "console_errors" in kinds

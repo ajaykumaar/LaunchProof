@@ -1,58 +1,246 @@
-"""Tiny buggy site for Launchproof smoke tests (2 planted issues).
+"""Neo-brutalist mini product site for Launchproof smoke + Critic style pickup.
 
   uvicorn dummy_site.app:app --port 8200
 
-Bugs:
-  - /wide  — horizontal overflow on phone (900px table)
-  - /about — broken image + console error
+Theme (deliberate, one style): neo-brutalism — hard black borders, flat brights,
+offset shadows, chunky type. Critic should name this.
 
-Not for load/payment demos (use demo_shop for those).
+Planted bugs (heuristic UI still catches these):
+  - /pricing — horizontal overflow on phone (900px table)
+  - /about   — broken image + console error
 """
 from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-app = FastAPI(title="Dummy Bugs")
+app = FastAPI(title="Stackbolt")
 
-NAV = '<p><a href="/">home</a> · <a href="/wide">wide</a> · <a href="/about">about</a></p>'
+CSS = """
+:root {
+  --ink: #111111;
+  --paper: #FFF7E8;
+  --yellow: #FFE566;
+  --pink: #FF6B9A;
+  --blue: #5B8CFF;
+  --green: #3DDC97;
+  --line: 3px solid var(--ink);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Arial Black", "Arial Bold", Arial, sans-serif;
+  line-height: 1.35;
+}
+a { color: inherit; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 64px; }
+.nav {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border: var(--line); background: #fff; padding: 10px 14px;
+  box-shadow: 6px 6px 0 var(--ink); margin-bottom: 28px;
+}
+.brand { font-size: 22px; letter-spacing: -0.03em; text-decoration: none; }
+.brand span { background: var(--yellow); border: var(--line); padding: 2px 8px; }
+.nav-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.nav-links a {
+  text-decoration: none; font-size: 13px; border: var(--line);
+  background: #fff; padding: 8px 12px; box-shadow: 3px 3px 0 var(--ink);
+}
+.nav-links a:hover { transform: translate(1px, 1px); box-shadow: 2px 2px 0 var(--ink); }
+.btn {
+  display: inline-block; text-decoration: none; border: var(--line);
+  padding: 12px 18px; font: inherit; font-size: 15px; cursor: pointer;
+  box-shadow: 5px 5px 0 var(--ink); background: var(--pink); color: var(--ink);
+}
+.btn:hover { transform: translate(2px, 2px); box-shadow: 3px 3px 0 var(--ink); }
+.btn.blue { background: var(--blue); }
+.btn.green { background: var(--green); }
+.btn.yellow { background: var(--yellow); }
+.btn.ghost { background: #fff; }
+.hero {
+  border: var(--line); background: var(--yellow); padding: 36px 28px;
+  box-shadow: 10px 10px 0 var(--ink); margin-bottom: 28px;
+}
+.hero h1 { font-size: clamp(36px, 7vw, 64px); line-height: 0.95; margin: 0 0 14px; letter-spacing: -0.04em; }
+.hero p { font-family: Arial, Helvetica, sans-serif; font-size: 18px; max-width: 42ch; margin: 0 0 22px; font-weight: 600; }
+.cta-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 28px 0; }
+.card {
+  border: var(--line); background: #fff; padding: 18px;
+  box-shadow: 6px 6px 0 var(--ink);
+}
+.card h3 { margin: 0 0 8px; font-size: 20px; }
+.card p { margin: 0; font-family: Arial, Helvetica, sans-serif; font-weight: 600; font-size: 15px; }
+.badge {
+  display: inline-block; border: var(--line); background: var(--blue); color: #fff;
+  padding: 4px 10px; font-size: 12px; margin-bottom: 12px; box-shadow: 3px 3px 0 var(--ink);
+}
+.section-title { font-size: 28px; margin: 8px 0 16px; letter-spacing: -0.03em; }
+.footer {
+  margin-top: 40px; border-top: var(--line); padding-top: 16px;
+  font-family: Arial, Helvetica, sans-serif; font-size: 13px; font-weight: 600;
+}
+.price-table { border: var(--line); background: #fff; box-shadow: 6px 6px 0 var(--ink); }
+/* no overflow:auto — wide table must scroll the page so Launchproof flags horizontal_overflow */
+table.wide { width: 900px; border-collapse: collapse; font-family: Arial, Helvetica, sans-serif; }
+table.wide th, table.wide td { border: 2px solid var(--ink); padding: 10px; text-align: left; }
+table.wide th { background: var(--pink); }
+"""
+
+
+def page(title: str, body: str, description: str = "Ship faster with Stackbolt") -> str:
+    nav = """
+    <header class="nav">
+      <a class="brand" href="/">Stack<span>bolt</span></a>
+      <nav class="nav-links">
+        <a href="/">Home</a>
+        <a href="/features">Features</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/about">About</a>
+        <a href="/signup">Sign up</a>
+      </nav>
+    </header>"""
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{title}</title>
+  <meta name="description" content="{description}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23FFE566' stroke='%23111' stroke-width='4'/><text x='6' y='23' font-size='16'>S</text></svg>">
+  <style>{CSS}</style>
+</head>
+<body>
+  <div class="wrap">
+    {nav}
+    {body}
+    <footer class="footer">Stackbolt · neo-brutal launch demo · planted bugs on Pricing + About for Launchproof</footer>
+  </div>
+</body>
+</html>"""
 
 
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Dummy Bugs</title>
-<meta name="description" content="Tiny site with planted layout bugs">
-<link rel="icon" href="data:,">
-</head><body style="font-family:system-ui;margin:2rem">
-<h1>Dummy Bugs</h1>
-<p>Two intentional issues for Launchproof UI smoke.</p>
-{NAV}
-</body></html>"""
+    body = """
+    <section class="hero">
+      <div class="badge">NEW · LAUNCH WEEK</div>
+      <h1>Ship the messy version before the crowd shows up.</h1>
+      <p>Stackbolt is a fake launch-day toolkit: checklists, status pages, and a big pink button that does nothing useful — on purpose.</p>
+      <div class="cta-row">
+        <a class="btn" href="/signup">Get started free</a>
+        <a class="btn blue" href="/pricing">See pricing</a>
+        <a class="btn ghost" href="/features">Browse features</a>
+      </div>
+    </section>
+    <h2 class="section-title">Why teams pretend to use it</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>One bright CTA</h3>
+        <p>Chunky buttons with offset shadows so nobody misses the next step.</p>
+      </article>
+      <article class="card">
+        <h3>Hard borders only</h3>
+        <p>No soft gradients. No glass blur. Just ink lines and loud color blocks.</p>
+      </article>
+      <article class="card">
+        <h3>Built for critics</h3>
+        <p>One committed neo-brutalist system from nav to footer — name it if you see it.</p>
+      </article>
+    </div>
+    <div class="cta-row">
+      <a class="btn green" href="/signup">Create account</a>
+      <a class="btn yellow" href="/about">Meet the team</a>
+    </div>
+    """
+    return page("Stackbolt — launch toolkit", body)
 
 
-@app.get("/wide", response_class=HTMLResponse)
-def wide():
-    # Phone viewport ~390px; this table forces horizontal overflow.
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Wide page</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-</head><body style="font-family:system-ui;margin:1rem">
-<h1>Pricing (broken on phone)</h1>
-{NAV}
-<table style="width:900px;border-collapse:collapse">
-<tr>{''.join(f'<th style="border:1px solid #ccc;padding:8px">Col {i}</th>' for i in range(1, 9))}</tr>
-<tr>{''.join(f'<td style="border:1px solid #ccc;padding:8px">cell</td>' for _ in range(8))}</tr>
-</table>
-</body></html>"""
+@app.get("/features", response_class=HTMLResponse)
+def features():
+    body = """
+    <h1 class="section-title">Features</h1>
+    <div class="grid">
+      <article class="card"><h3>Launch checklist</h3><p>Tick boxes until you feel brave enough to tweet.</p></article>
+      <article class="card"><h3>Status page</h3><p>Green squares that stay green even when things are on fire.</p></article>
+      <article class="card"><h3>Crowd counter</h3><p>A number that goes up. Morale optional.</p></article>
+      <article class="card"><h3>Fix prompts</h3><p>Paste-ready notes for whoever is still awake.</p></article>
+    </div>
+    <div class="cta-row">
+      <a class="btn" href="/signup">Start free</a>
+      <a class="btn ghost" href="/pricing">Compare plans</a>
+    </div>
+    """
+    return page("Features · Stackbolt", body)
+
+
+@app.get("/pricing", response_class=HTMLResponse)
+def pricing():
+    # Planted bug: 900px table forces horizontal overflow on phone.
+    cols = "".join(f"<th>Col {i}</th>" for i in range(1, 9))
+    cells = "".join("<td>cell</td>" for _ in range(8))
+    body = f"""
+    <h1 class="section-title">Pricing</h1>
+    <p style="font-family:Arial,Helvetica,sans-serif;font-weight:600;max-width:50ch">
+      Simple plans. The comparison table below is intentionally too wide on phones — Launchproof should flag it.
+    </p>
+    <div class="cta-row" style="margin:18px 0">
+      <a class="btn" href="/signup">Start Hobby</a>
+      <a class="btn blue" href="/signup">Go Pro</a>
+      <button class="btn yellow" type="button" onclick="this.textContent='Loading…'; this.disabled=true">Buy now</button>
+    </div>
+    <div class="price-table">
+      <table class="wide">
+        <tr>{cols}</tr>
+        <tr>{cells}</tr>
+        <tr>{cells}</tr>
+      </table>
+    </div>
+    """
+    return page("Pricing · Stackbolt", body, "Stackbolt pricing with a planted overflow bug")
 
 
 @app.get("/about", response_class=HTMLResponse)
 def about():
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>About</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-</head><body style="font-family:system-ui;margin:2rem">
-<h1>About</h1>
-{NAV}
-<img src="/missing-logo.png" alt="broken logo" width="120" height="40">
-<script>console.error("analytics.track is not a function");</script>
-<p>Short about page with a broken image and a console error.</p>
-</body></html>"""
+    body = """
+    <h1 class="section-title">About</h1>
+    <div class="card" style="max-width:560px">
+      <img src="/missing-logo.png" alt="broken logo" width="160" height="48">
+      <script>console.error("analytics.track is not a function");</script>
+      <p style="margin-top:14px;font-family:Arial,Helvetica,sans-serif;font-weight:600">
+        We built Stackbolt in a weekend to stress-test launch-day agents. This page plants a broken image and a console error on purpose.
+      </p>
+      <div class="cta-row" style="margin-top:16px">
+        <a class="btn green" href="/signup">Join the waitlist</a>
+        <a class="btn ghost" href="/">Back home</a>
+      </div>
+    </div>
+    """
+    return page("About · Stackbolt", body)
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup():
+    body = """
+    <h1 class="section-title">Create your account</h1>
+    <form class="card" style="max-width:420px" method="get" action="/signup" id="signup-form"
+      onsubmit="event.preventDefault(); var m=document.getElementById('signup-ok'); m.hidden=false; m.setAttribute('data-lp-signup','ok');">
+      <label style="display:block;margin:8px 0 4px;font-size:13px">Email</label>
+      <input name="email" type="email" required placeholder="you@launch.dev"
+        style="width:100%;border:var(--line);padding:12px;font:inherit;box-shadow:3px 3px 0 var(--ink)">
+      <label style="display:block;margin:14px 0 4px;font-size:13px">Password</label>
+      <input name="password" type="password" required minlength="8" placeholder="••••••••"
+        style="width:100%;border:var(--line);padding:12px;font:inherit;box-shadow:3px 3px 0 var(--ink)">
+      <div class="cta-row" style="margin-top:18px">
+        <button class="btn" type="submit">Sign up</button>
+        <button class="btn ghost" type="submit">Sign up again (chaos bait)</button>
+      </div>
+      <p id="signup-ok" hidden style="margin-top:14px;font-family:Arial,Helvetica,sans-serif;font-weight:600">
+        Fake signup accepted. Welcome aboard — check your inbox.
+      </p>
+    </form>
+    """
+    return page("Sign up · Stackbolt", body)

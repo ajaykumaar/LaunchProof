@@ -133,6 +133,15 @@ TEMPLATES = {
                       "because the browser reached the success URL. In the success handler, retrieve the Checkout Session from Stripe "
                       "with your secret key, check payment_status == 'paid' and that client_reference_id matches the signed-in user, "
                       "and grant access in the checkout.session.completed webhook as the source of truth.",
+    "signup_unreachable": "A new visitor to {where} cannot find Sign up / Create account. Add a clear signup CTA in the nav and hero "
+                          "that leads to a form with email and password (or magic link).",
+    "signup_no_form": "On {where}, the signup entry point loads but there is no usable email+password form: {detail}. Expose labeled "
+                      "email and password fields (and name if needed) so a first-time user can register.",
+    "signup_failed": "Signup submit failed on {where}: {detail}. Make the primary Sign up button work and return a clear success or error state.",
+    "signup_no_feedback": "After submitting signup on {where}: {detail}. On success show a welcome / verify-email state (or "
+                          "data-lp-signup=\"ok\" for tests). On failure show the validation or server error next to the form.",
+    "signup_validation_weak": "On {where}, submitting an empty signup form does not show required-field validation: {detail}. Mark "
+                              "email/password as required and surface native or custom error messages before calling the API.",
     "stripe_backend": "Stripe reports: {detail}. Fix the webhook endpoint (correct URL, returns 2xx within 10 seconds, verifies the "
                       "signature with the right signing secret for this mode).",
     "load_break": "Under load, {where} {detail_lower} The failing paths were {paths}. Likely causes: too few database connections, "
@@ -215,7 +224,7 @@ def claude_fix_prompts(issues: list[dict]) -> list[str] | None:
 
 # ---------- headline + share card ----------
 
-def headline(sc: dict, ui: dict | None, pay: dict | None, load: dict | None) -> list[str]:
+def headline(sc: dict, ui: dict | None, pay: dict | None, load: dict | None, signup: dict | None = None) -> list[str]:
     bits = []
     if load:
         regions = load.get("regions") or {}
@@ -232,6 +241,13 @@ def headline(sc: dict, ui: dict | None, pay: dict | None, load: dict | None) -> 
             bits.append("Checkout works")
         else:
             bits.append("Checkout broken")
+    if signup:
+        if signup.get("success"):
+            bits.append("Signup works")
+        elif signup.get("reached_form"):
+            bits.append("Signup broken")
+        else:
+            bits.append("Signup not found")
     if ui:
         n = len(dedupe_ui(ui.get("issues", [])))
         bits.append(f"{n} UI issue{'s' if n != 1 else ''}" if n else "No UI issues")
@@ -395,7 +411,7 @@ async def build_report(run: dict, out_dir: Path, prompts_override: list[str] | N
     else:
         prompts = claude_fix_prompts(issues) or [fix_prompt(i) for i in issues]
     sc = score(ui, pay, load)
-    bits = headline(sc, ui, pay, load)
+    bits = headline(sc, ui, pay, load, signup=run.get("signup"))
     regions = ", ".join((load or {}).get("regions", {}).keys()) or "not run"
     card = None
     try:
@@ -412,6 +428,7 @@ async def build_report(run: dict, out_dir: Path, prompts_override: list[str] | N
         "headline": bits,
         "appeal_score": appeal,
         "smart_ui": (ui or {}).get("smart_ui") or run.get("smart_ui"),
+        "signup": run.get("signup"),
         "issues": [{**i, "fix_prompt": p} for i, p in zip(issues, prompts)],
     }
     (out_dir / "report.json").write_text(json.dumps(result, indent=2))

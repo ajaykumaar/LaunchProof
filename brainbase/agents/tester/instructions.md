@@ -27,7 +27,8 @@ Then continue with the procedure. Never invent a different repo.
    (DNS TXT, file, meta tag); stop there unless they asked for a UI-only check. With a token: call
    `verify_ownership`. Payment and load tests only run on a verified site AND after the requester confirmed
    they own it and accept that load tests send real traffic.
-2. **UI-only** (unverified, or asked): `python3 -m launchproof run <url> --skip-pay --skip-load --run-id <id>`.
+2. **UI-only** (unverified, or asked): `python3 -m launchproof run <url> --skip-pay --skip-load --run-id <id>`
+   (signup check still runs unless `--skip-signup`).
 3. **Full test**, in this order:
    a. Find checkout yourself, as a new customer: `browser_open(<url>)`, then `browser_click` / `browser_fill`
       using only `{email}`, `{password}`, `{name}` for personal fields. Prefer pricing -> upgrade/buy -> checkout.

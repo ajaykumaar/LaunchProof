@@ -44,7 +44,7 @@ def _say(msg: str):
 def run_args(url: str, **kw) -> argparse.Namespace:
     """Build the same options the CLI would, for programmatic use (web API)."""
     defaults = dict(url=url, token=None, out="runs", run_id=None, max_pages=12, skip_ui=False, skip_pay=False,
-                    skip_load=False, no_agent=False, unlock_selector=None, stripe_key=None, regions=None,
+                    skip_load=False, skip_signup=False, no_agent=False, unlock_selector=None, stripe_key=None, regions=None,
                     load_paths=None, stages="10,25,50,100,200,400,800", stage_seconds=30.0, think=(1.0, 3.0),
                     report_link=None, i_understand_costs=True, journey=None)
     defaults.update(kw)
@@ -76,6 +76,19 @@ async def run(a) -> dict:
         record["ui"] = merge_into_ui(ui.to_dict(), skipped_payload())
         record["smart_ui"] = record["ui"].get("smart_ui")
         _say(f"UI check: {len(ui.pages) // 2} pages, {len(ui.issues)} findings (smart UI: skipped on local CLI)")
+
+    if not getattr(a, "skip_signup", False):
+        from .signup_check import run_signup_check
+        _say("signup check: finding create-account flow")
+        su = await run_signup_check(url, out, run_id=run_id)
+        record["signup"] = su.to_dict()
+        # Fold signup into the UI bucket (create a minimal UI blob if UI was skipped).
+        if record.get("ui") is None:
+            record["ui"] = {"issues": list(su.issues), "pages": [], "start_url": url}
+        elif su.issues:
+            record["ui"] = dict(record["ui"])
+            record["ui"]["issues"] = list(record["ui"].get("issues") or []) + su.issues
+        _say(f"signup check: reached_form={su.reached_form} success={su.success} issues={len(su.issues)}")
 
     if not a.skip_pay:
         from .payment import run_payment_check
@@ -173,6 +186,7 @@ def main(argv=None) -> int:
     r.add_argument("--skip-ui", action="store_true")
     r.add_argument("--skip-pay", action="store_true")
     r.add_argument("--skip-load", action="store_true")
+    r.add_argument("--skip-signup", action="store_true", help="skip the create-account / signup flow check")
     r.add_argument("--no-agent", action="store_true", help="use the heuristic journey instead of Claude")
     r.add_argument("--unlock-selector", help="CSS selector that only exists once the user has paid, e.g. '#plan-status[data-plan=pro]'")
     r.add_argument("--stripe-key", help="restricted READ-ONLY key for the target's Stripe account (deep verification)")
