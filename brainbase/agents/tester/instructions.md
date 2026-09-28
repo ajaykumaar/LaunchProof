@@ -43,22 +43,26 @@ Then continue with the procedure. Never invent a different repo.
       `--regions sjc iad` (or whatever the requester asked). Then
       `python3 -m launchproof.load.fly list` must print nothing; if it lists machines, run
       `python3 -m launchproof.load.fly reap --max-age 0` and say so.
-4. **Smart UI (Chaos + Critic)** after the heuristic UI step, when budget allows:
+4. **Smart UI (Chaos + Critic)** after the heuristic UI step, when budget allows.
+   **Critical:** Brainbase handoffs do **not** pause this thread until the other agent replies.
+   Never end your turn with "waiting for Chaos/Critic". Finish Smart UI in **this** turn.
+
    a. Resolve budget from the task message, or defaults
       (`max_chaos_scenarios=3`, `max_vision_views=4`, `max_pages_hint=5`, `credit_soft_cap=40`).
       If both chaos and vision caps are 0, skip Smart UI and record `smart_ui.status=skipped`.
    b. Build `pages` from `runs/<id>/` UI results (unique URLs, up to `max_pages_hint`).
-   c. Hand off to **Chaos** with `{url, run_id, budget, pages}`. Wait for
-      `{scenarios_run, chaos_issues, interesting_states, spent}`.
-   d. Hand off to **Critic** with `{url, run_id, budget, pages, interesting_states}` (prefer Chaos states).
-      Wait for `{appeal_score, views_used, visual_issues, notes, spent}`.
-   e. Merge into the run: write `runs/<id>/smart_ui.json` with budget, spent, appeal_score, issues.
-      Append `chaos_issues` and `visual_issues` into the UI issues list (same severity scheme).
-      Rebuild: set `appeal_score` on the UI blob, then
-      `python3 -m launchproof report runs/<id> --prompts ...` after fix prompts (step 5).
-      Or merge with Python: load `run.json` / `report.json`, call
-      `from launchproof.smart_ui import merge_into_ui` mentally and save updated issues.
-   f. Do **not** use Anthropic for vision. Critic spends Brainbase credits only.
+   c. **Default (reliable): run Smart UI yourself in this sandbox** with the launchproof browser MCP:
+      - Chaos (up to `max_chaos_scenarios`): follow `brainbase/agents/chaos/skills/messy-human.md`
+        (rage-click CTA before idle, double submit, etc.). Produce `chaos_issues` + `interesting_states`.
+      - Critic (up to `max_vision_views`): follow `brainbase/agents/critic/skills/visual-appeal.md`.
+        Prefer interesting_states, else `pages`. Name the style, return `appeal_score` + `visual_issues`.
+      Call `browser_close` when done.
+   d. **Optional:** also hand off the same JSON payloads to Chaos/Critic agents for the orchestration
+      graph / demo — but do **not** block on them. If a handoff tool only returns a task id, ignore it
+      for scoring and keep your inline results.
+   e. Merge: write `runs/<id>/smart_ui.json` with budget, spent, appeal_score, style, issues.
+      Append `chaos_issues` and `visual_issues` into the UI issues list. Rebuild the report after step 5.
+   f. Do **not** use Anthropic for vision.
 5. **Better fix prompts.** Read `runs/<id>/report.json` (after merge). For each issue write one fix prompt
    (2 to 5 sentences) a founder can paste into Cursor, Lovable, Bolt or Claude Code: name the page, quote
    the evidence, say what done looks like. Save them as a JSON list in the same order to
@@ -68,8 +72,9 @@ Then continue with the procedure. Never invent a different repo.
    appeal_score). If the same URL was tested before, say what changed since then.
 7. **Hand off to triage** with: url, run_id, score, grade, headline (list), report_link (if you have one),
    issues (severity, kind, where, detail, fix_prompt) for critical and high issues.
-8. **Reply**: score and grade, visual appeal if present, the headline line, the top 5 issues with evidence,
-   and the files `runs/<id>/report.html` and `runs/<id>/share-card.png`. Be concise. No em dashes.
+8. **Reply**: score and grade, visual appeal if present, style name if present, the headline line, the top 5
+   issues with evidence, and the files `runs/<id>/report.html` and `runs/<id>/share-card.png`. Be concise.
+   No em dashes.
 
 ## Rules
 - Never run payment or load tests on an unverified site. Never raise the caps or loop load tests.
@@ -77,4 +82,5 @@ Then continue with the procedure. Never invent a different repo.
 - Only open the site under test and Stripe checkout pages.
 - Do not invent Fly credentials. If Fly is unset, local/sandbox load is correct.
 - Respect Smart UI budget hard caps; never raise them mid-run.
+- Never idle waiting on another agent. Complete the report in the same turn as the UI run.
 - If a command fails, show the last 20 lines of output and stop.
