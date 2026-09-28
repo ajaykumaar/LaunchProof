@@ -7,16 +7,128 @@
 schema: 1
 orchestration:
   name: Launchproof Team
-  description: Tester runs launch-day checks, Triage files the results, Janitor guarantees teardown
+  description: Tester runs checks; Chaos probes messy humans; Critic scores visual appeal; Triage files; Janitor reaps Fly
   credit_limit: 400
 members:
   - slug: tester
     name: Launchproof Tester
+  - slug: chaos
+    name: Launchproof Chaos
+  - slug: critic
+    name: Launchproof Critic
   - slug: triage
     name: Launchproof Triage
   - slug: janitor
     name: Launchproof Janitor
 edges:
+  - from: tester
+    to: chaos
+    description: Heuristic UI done. Probe messy-human scenarios within budget.
+    payload_schema:
+      type: object
+      required: [url, run_id, budget]
+      properties:
+        url: {type: string}
+        run_id: {type: string}
+        budget:
+          type: object
+          properties:
+            max_chaos_scenarios: {type: integer}
+            max_vision_views: {type: integer}
+            max_pages_hint: {type: integer}
+            credit_soft_cap: {type: integer}
+        pages:
+          type: array
+          items: {type: string}
+    settings:
+      max_handoffs: 1
+  - from: tester
+    to: critic
+    description: Score visual appeal within vision budget (pages from Tester; Chaos states may arrive separately).
+    payload_schema:
+      type: object
+      required: [url, run_id, budget]
+      properties:
+        url: {type: string}
+        run_id: {type: string}
+        budget:
+          type: object
+          properties:
+            max_chaos_scenarios: {type: integer}
+            max_vision_views: {type: integer}
+            max_pages_hint: {type: integer}
+            credit_soft_cap: {type: integer}
+        pages:
+          type: array
+          items: {type: string}
+        interesting_states:
+          type: array
+          items:
+            type: object
+            properties:
+              url: {type: string}
+              viewport: {type: string}
+              why: {type: string}
+              evidence: {type: string}
+    settings:
+      max_handoffs: 1
+  - from: chaos
+    to: critic
+    description: Interesting states after messy probes. Spend remaining vision budget here first.
+    payload_schema:
+      type: object
+      required: [url, run_id, budget, interesting_states]
+      properties:
+        url: {type: string}
+        run_id: {type: string}
+        budget:
+          type: object
+          properties:
+            max_vision_views: {type: integer}
+            credit_soft_cap: {type: integer}
+        interesting_states:
+          type: array
+          items:
+            type: object
+            properties:
+              url: {type: string}
+              viewport: {type: string}
+              why: {type: string}
+              evidence: {type: string}
+        chaos_issues:
+          type: array
+          items: {type: object}
+    settings:
+      max_handoffs: 1
+  - from: chaos
+    to: tester
+    description: Chaos findings ready to merge into the report.
+    payload_schema:
+      type: object
+      required: [run_id, chaos_issues]
+      properties:
+        run_id: {type: string}
+        scenarios_run: {type: array, items: {type: string}}
+        chaos_issues: {type: array, items: {type: object}}
+        interesting_states: {type: array, items: {type: object}}
+        spent: {type: object}
+    settings:
+      max_handoffs: 1
+  - from: critic
+    to: tester
+    description: Appeal score and visual issues ready to merge.
+    payload_schema:
+      type: object
+      required: [run_id, visual_issues]
+      properties:
+        run_id: {type: string}
+        appeal_score: {type: integer}
+        views_used: {type: integer}
+        visual_issues: {type: array, items: {type: object}}
+        notes: {type: string}
+        spent: {type: object}
+    settings:
+      max_handoffs: 1
   - from: tester
     to: triage
     description: Report ready. File it in Slack and Linear.

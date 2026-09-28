@@ -9,6 +9,8 @@ turn multi-region load back on (no code revert). Hacking ends 3:30. Our $9 check
 | Piece | Runs on | Paid by |
 |---|---|---|
 | **Tester agent**: UI, MCP journey, Stripe test payments, bypass probe, report, fix prompts, **local/sandbox load** | Brainbase sandbox | Brainbase credits |
+| **Chaos agent**: messy-human probes (rage click, double submit) | Brainbase | Budget-capped credits |
+| **Critic agent**: visual appeal score | Brainbase browser | Budget-capped credits (no Anthropic) |
 | **Triage agent**: Slack + Linear | Brainbase | Brainbase credits |
 | **Janitor agent**: Fly reaper | Off until Fly credentials exist (`is_active: false`) | — |
 | **Front doors**: chat, Slack, Linear, API | Brainbase | Brainbase credits |
@@ -90,10 +92,12 @@ brainbase agent create
 brainbase agent push
 ```
 
-**4b. Triage + Janitor** (Janitor is a no-op without Fly; still push for later)
+**4b. Triage + Janitor + Chaos + Critic** (Janitor is a no-op without Fly; still push for later)
 ```powershell
 cd ..\triage;  mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env; brainbase agent create; brainbase agent push
 cd ..\janitor; mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env; brainbase agent create; brainbase agent push
+cd ..\chaos;   mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env; brainbase agent create; brainbase agent push
+cd ..\critic;  mkdir .brainbase; copy ..\..\secrets.env.example .brainbase\secrets.env; brainbase agent create; brainbase agent push
 ```
 
 **4c. Orchestration**
@@ -102,16 +106,26 @@ cd ..\..   # brainbase/
 brainbase orchestration create
 brainbase orchestration push
 ```
-Janitor schedule is `is_active: false` until Fly is back.
+Janitor schedule is `is_active: false` until Fly is back. Tester hands off to Chaos then Critic within the Smart UI budget, then Triage.
+
+**Smart UI budget** (Chaos messy-human + Critic visual appeal; Brainbase credits only — no Anthropic vision):
+| Knob | Default | Meaning |
+|---|---|---|
+| `LP_MAX_CHAOS` / `max_chaos_scenarios` | 3 | Max messy-human scenarios per run |
+| `LP_MAX_VISION_VIEWS` / `max_vision_views` | 4 | Max Critic page views (URL×viewport) |
+| `LP_SMART_UI_CREDITS` / `credit_soft_cap` | 40 | Soft credit stop for the smart-UI phase |
+| `LP_SMART_UI_BUDGET` | JSON | Override all four keys at once |
+
+Webapp start-run form has the same fields under “Smart UI budget”. Tiny smoke: set both chaos and vision to `1`. Local CLI marks `smart_ui: skipped` (agents only run on Brainbase).
 
 **4d. Test in Brainbase chat**
-1. UI-only on your tunnel URL.
+1. UI-only on your tunnel URL (heuristic UI + optional Chaos/Critic).
 2. Full test with token — agent must **omit `--regions`**; load runs in the sandbox.
 
 **4e. API kickoff**
 ```powershell
 $env:BRAINBASE_AGENT_ID = "<from brainbase agent status>"
-python -m launchproof.brainbase run https://YOUR-TUNNEL.trycloudflare.com --token lp_... --full
+python -m launchproof.brainbase run https://YOUR-TUNNEL.trycloudflare.com --token lp_... --full --max-chaos 1 --max-vision 1
 ```
 
 ## Step 5. Real teams / video / $9 pass

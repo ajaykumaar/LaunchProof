@@ -79,20 +79,32 @@ def verify_page(url: str = Form(...)):
 <label><input type="checkbox" name="full" value="1" {'checked' if paid else ''}> Full test (payment + load). {'Launch Pass active.' if paid else 'Needs a Launch Pass.'}</label>
 <label><input type="checkbox" name="consent" value="1" required> I own this site or have written permission to test it, and I accept that load tests
 send real traffic that may slow the site and cost me bandwidth (see <a href="/legal/terms">Terms</a>).</label>
+<details class="small muted" style="margin-top:12px"><summary>Smart UI budget (Chaos + Critic)</summary>
+<p>Caps Brainbase credits for messy-human probes and visual appeal. Leave blank for defaults.</p>
+<label for="max_chaos">Max Chaos scenarios</label>
+<input id="max_chaos" type="text" name="max_chaos_scenarios" placeholder="3" inputmode="numeric">
+<label for="max_vision">Max Critic vision views</label>
+<input id="max_vision" type="text" name="max_vision_views" placeholder="4" inputmode="numeric">
+<label for="smart_credits">Smart UI credit soft cap</label>
+<input id="smart_credits" type="text" name="credit_soft_cap" placeholder="40" inputmode="numeric">
+</details>
 <button type="submit">Start the test</button> {'' if paid else f'<a class="btn" href="/buy?url={e(url)}">Buy Launch Pass ($9)</a>'}</form>
 <p class="small muted">Only doing a UI check? You can skip verification: we crawl up to 20 pages and honor robots.txt.</p>""")
 
 
-async def _do_run_brainbase(run_id: str, url: str, token: str | None, full: bool):
+async def _do_run_brainbase(run_id: str, url: str, token: str | None, full: bool, budget: dict | None = None):
     """Hand the run to the Launchproof agent on Brainbase (its sandbox, its model, our credits)."""
     import json
 
     from launchproof import brainbase as bb
     rec = RUNS[run_id]
     rec["status"] = "running"
+    rec["smart_ui_budget"] = budget
     try:
-        tid = await asyncio.to_thread(bb.start, bb.task_message(url, run_id, token, full))
+        tid = await asyncio.to_thread(bb.start, bb.task_message(url, run_id, token, full, budget=budget))
         rec["log"].append(f"Brainbase agent started (thread {tid})")
+        if budget:
+            rec["log"].append(f"smart_ui budget: {budget}")
         st = await asyncio.to_thread(bb.wait, tid, 1500, lambda m: rec["log"].append(m[:1500]))
         for name in ("report.html", "share-card.png", "report.json"):
             await asyncio.to_thread(bb.download, tid, f"launchproof/runs/{run_id}/{name}", RUNS_DIR / run_id / name)
@@ -109,9 +121,9 @@ async def _do_run_brainbase(run_id: str, url: str, token: str | None, full: bool
         rec["log"].append(f"run failed: {ex}")
 
 
-async def _do_run(run_id: str, url: str, token: str | None, full: bool):
+async def _do_run(run_id: str, url: str, token: str | None, full: bool, budget: dict | None = None):
     if os.getenv("BRAINBASE_API_KEY") and os.getenv("BRAINBASE_AGENT_ID"):
-        return await _do_run_brainbase(run_id, url, token, full)
+        return await _do_run_brainbase(run_id, url, token, full, budget=budget)
     rec = RUNS[run_id]
     LOG_SINK.set(rec["log"])
     async with _sem:
@@ -138,15 +150,19 @@ def _regions_for_run() -> list[str] | None:
 
 @app.post("/runs")
 async def start_run(background: BackgroundTasks, url: str = Form(...), token: str = Form(""),
-                    full: str = Form(""), consent: str = Form("")):
+                    full: str = Form(""), consent: str = Form(""),
+                    max_chaos_scenarios: str = Form(""), max_vision_views: str = Form(""),
+                    max_pages_hint: str = Form(""), credit_soft_cap: str = Form("")):
     if not consent:
         raise HTTPException(400, "consent is required")
     want_full = bool(full)
     if want_full and ownership.host_of(url) not in PASSES and not ownership.DEV_HOSTS.match(ownership.host_of(url)):
         return RedirectResponse(f"/buy?url={url}", status_code=303)
+    from launchproof.smart_ui import parse_form_budget
+    budget = parse_form_budget(max_chaos_scenarios, max_vision_views, max_pages_hint, credit_soft_cap)
     run_id = secrets.token_hex(5)
-    RUNS[run_id] = {"status": "queued", "log": [], "url": url, "result": None}
-    background.add_task(_do_run, run_id, url, token or None, want_full)
+    RUNS[run_id] = {"status": "queued", "log": [], "url": url, "result": None, "smart_ui_budget": budget}
+    background.add_task(_do_run, run_id, url, token or None, want_full, budget)
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
 

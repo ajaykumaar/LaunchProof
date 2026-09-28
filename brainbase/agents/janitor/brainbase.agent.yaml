@@ -1,7 +1,10 @@
+# brainbase.agent.yaml — declarative agent manifest.
+# Committed to source control. Edit by hand, then `brainbase agent push`.
+
 schema: 1
+id: aa0c369f-2da5-4214-bc99-fafc1579269f
 harness: claude-code
 machine_kind: daytona
-# Prefer a cheap model; override in the UI if this id is rejected on your org.
 default_model: claude-sonnet-5
 agent:
   name: Launchproof Janitor
@@ -10,11 +13,26 @@ instructions:
   file: ./instructions.md
 entrypoint:
   file: ./entrypoint.sh
+playbooks: []
+skills: []
+mcp: []
+evals:
+  - id: c3b670dc-8599-442d-b617-cbc48f00914b
+    slug: never-creates-machines
+    criteria: Pass only if the agent did not create or start any Fly machine and
+      only ran reap/list commands.
+    enabled: true
+    judge_model: claude-sonnet-4-6
+    judge_type: model
+    output_shape: binary
+  - id: efd0b78f-88d9-4286-80bb-f5b1d1c03126
+    slug: reports-outcome
+    criteria: Pass when the reply is one clear line stating what was reaped or that
+      nothing needed reaping.
+    enabled: true
+    judge_model: claude-sonnet-4-6
+    judge_type: model
+    output_shape: binary
 capabilities:
   memory: false
   browser: false
-evals:
-  - slug: never-creates-machines
-    criteria: Pass only if the agent did not create or start any Fly machine and only ran reap/list commands.
-  - slug: reports-outcome
-    criteria: Pass when the reply is one clear line stating what was reaped or that nothing needed reaping.

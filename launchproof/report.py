@@ -138,6 +138,35 @@ TEMPLATES = {
     "load_break": "Under load, {where} {detail_lower} The failing paths were {paths}. Likely causes: too few database connections, "
                   "no caching on read-heavy endpoints, or a single small server. Add a connection pooler, cache this response "
                   "(even 10 seconds helps), and move slow work out of the request. Then re-run the load test.",
+    # Smart UI — Chaos (messy human)
+    "chaos_double_submit": "On {where}, a messy visitor can trigger duplicate submits: {detail}. Debounce the submit button "
+                           "(disable on first click), ignore duplicate POSTs server-side with an idempotency key, and show a single "
+                           "in-progress state until the response returns.",
+    "chaos_race_click": "On {where}, clicking the primary action before the page finishes loading causes: {detail}. Guard handlers "
+                        "until hydration/networkidle, or queue a single navigation and ignore further clicks until it settles.",
+    "chaos_nav_spam": "On {where}, rapid nav clicks while loading cause: {detail}. Abort in-flight fetches on route change, cancel "
+                      "pending transitions, and keep a stable loading state so spam clicks cannot stack navigations.",
+    "chaos_disabled_click": "On {where}, clicking a loading or disabled control still fires work: {detail}. Make disabled buttons "
+                            "non-interactive (pointer-events and no handler), and ignore events while aria-busy is true.",
+    "chaos_history": "On {where}, Back/Forward mid-flow breaks state: {detail}. Persist wizard/step state in the URL or sessionStorage, "
+                     "and restore it on pageshow/popstate instead of rendering a blank or half-initialized screen.",
+    "chaos_crash": "On {where}, messy interaction crashed or blanked the UI: {detail}. Add an error boundary, catch unhandled promise "
+                   "rejections from racey clicks, and show a recoverable error state instead of a white screen.",
+    # Smart UI — Critic (visual appeal)
+    "visual_hierarchy": "On {where}, visual hierarchy is weak: {detail}. Make one clear H1, reduce competing sizes/weights, and put the "
+                        "primary message above secondary claims so a first-time visitor knows what matters.",
+    "visual_contrast": "On {where}, contrast/readability fails: {detail}. Raise text/background contrast to at least WCAG AA, and avoid "
+                       "light grey body copy on pale backgrounds.",
+    "visual_clutter": "On {where}, the layout feels cluttered: {detail}. Remove or collapse secondary blocks, add consistent spacing, "
+                      "and leave one clear focal area above the fold.",
+    "visual_cta": "On {where}, the primary call to action is unclear: {detail}. Use one high-contrast primary button with a concrete "
+                  "label (Get started / Buy / Upgrade) and demote secondary actions to ghost/text buttons.",
+    "visual_mobile": "On {where} (phone), density or stacking is hard to use: {detail}. Increase tap targets to 44px, stack sections "
+                     "single-column, and reduce competing sticky bars.",
+    "visual_polish": "On {where}, polish issues hurt trust: {detail}. Fix alignment, replace placeholder copy/images, and make spacing "
+                     "and corner radii consistent across the page.",
+    "visual_broken_layout": "On {where}, the layout is broken: {detail}. Fix overlapping or cut-off elements at this viewport; check "
+                            "absolute positioning, z-index, and overflow hidden that clips content.",
 }
 
 
@@ -198,6 +227,11 @@ def headline(sc: dict, ui: dict | None, pay: dict | None, load: dict | None) -> 
     if ui:
         n = len(dedupe_ui(ui.get("issues", [])))
         bits.append(f"{n} UI issue{'s' if n != 1 else ''}" if n else "No UI issues")
+        appeal = ui.get("appeal_score")
+        if appeal is None and isinstance(ui.get("smart_ui"), dict):
+            appeal = ui["smart_ui"].get("appeal_score")
+        if appeal is not None:
+            bits.append(f"Visual appeal {int(appeal)}/100")
     return bits
 
 
@@ -261,6 +295,14 @@ def render_html(run: dict, issues: list[dict], prompts: list[str], sc: dict, bit
     site = urlparse(run["url"]).netloc
     parts = "".join(f'<span class="pill">{ {"ui": "UI"}.get(k, k.title())} {v["got"]}/{v["of"]}</span>' for k, v in sc["parts"].items())
     skipped = f'<p class="muted">Not run: {", ".join(sc["skipped"])}.</p>' if sc["skipped"] else ""
+    ui = run.get("ui") or {}
+    appeal = ui.get("appeal_score")
+    if appeal is None and isinstance(ui.get("smart_ui"), dict):
+        appeal = ui["smart_ui"].get("appeal_score")
+    appeal_html = (
+        f'<p class="muted">Visual appeal: <b>{int(appeal)}/100</b> (Critic)</p>'
+        if appeal is not None else ""
+    )
     cards = []
     for n, (i, p) in enumerate(zip(issues, prompts)):
         shot = f'<img class="shot" loading="lazy" src="{e(i["shot"])}" alt="screenshot">' if i.get("shot") else ""
@@ -287,16 +329,37 @@ def render_html(run: dict, issues: list[dict], prompts: list[str], sc: dict, bit
 <meta property="og:description" content="{e(' · '.join(bits))}">{f'<meta property="og:image" content="{e(card_name)}">' if card_name else ''}
 <style>{REPORT_CSS}</style></head><body><main>
 <div class="hero"><div><h1>{e(site)}</h1><div class="muted">{e(run['url'])} · run {e(run.get('run_id') or '')} · {e(run.get('finished_at') or '')}</div>
-<div class="parts">{parts}</div>{skipped}<p>{e(' · '.join(bits))}</p></div><div class="big">{sc['total']}<small>/100</small></div></div>
+<div class="parts">{parts}</div>{skipped}<p>{e(' · '.join(bits))}</p>{appeal_html}</div><div class="big">{sc['total']}<small>/100</small></div></div>
 <h2>What broke ({len(issues)})</h2>{''.join(cards) or '<p>Nothing. Ship it.</p>'}
 {pay_tbl}{load_tbl}{share}
-<p class="muted" style="margin-top:40px">Launchproof ran a headless browser on phone and desktop, a Stripe test-mode checkout, and a
-labeled load test (User-Agent LaunchproofLoadTest/1.0) against a site whose owner verified control of it.</p>
+<p class="muted" style="margin-top:40px">Launchproof ran a headless browser on phone and desktop, optional Chaos/Critic smart UI,
+a Stripe test-mode checkout, and a labeled load test (User-Agent LaunchproofLoadTest/1.0) against a site whose owner verified control of it.</p>
 </main></body></html>"""
 
 
 async def build_report(run: dict, out_dir: Path, prompts_override: list[str] | None = None) -> dict:
+    from .smart_ui import merge_into_ui
+
     ui, pay, load = run.get("ui"), run.get("payments"), run.get("load")
+    smart = run.get("smart_ui")
+    smart_path = out_dir / "smart_ui.json"
+    if smart is None and smart_path.is_file():
+        try:
+            smart = json.loads(smart_path.read_text())
+        except Exception:
+            smart = None
+    if ui is not None and smart is not None:
+        # Avoid double-merging if Tester already appended the same issues.
+        already = {(i.get("kind"), i.get("where"), i.get("detail")) for i in (ui.get("issues") or [])}
+        filtered = dict(smart)
+        for key in ("chaos_issues", "visual_issues"):
+            filtered[key] = [
+                i for i in (smart.get(key) or [])
+                if (i.get("kind"), i.get("where"), i.get("detail")) not in already
+            ]
+        ui = merge_into_ui(ui, filtered)
+        run = {**run, "ui": ui, "smart_ui": ui.get("smart_ui")}
+
     issues = []
     if ui:
         issues += dedupe_ui(ui.get("issues", []))
@@ -323,6 +386,15 @@ async def build_report(run: dict, out_dir: Path, prompts_override: list[str] | N
         print(f"share card failed: {ex}")
     doc = render_html(run, issues, prompts, sc, bits, card.name if card else None)
     (out_dir / "report.html").write_text(doc)
-    result = {"score": sc, "headline": bits, "issues": [{**i, "fix_prompt": p} for i, p in zip(issues, prompts)]}
+    appeal = (ui or {}).get("appeal_score")
+    if appeal is None and isinstance((ui or {}).get("smart_ui"), dict):
+        appeal = ui["smart_ui"].get("appeal_score")
+    result = {
+        "score": sc,
+        "headline": bits,
+        "appeal_score": appeal,
+        "smart_ui": (ui or {}).get("smart_ui") or run.get("smart_ui"),
+        "issues": [{**i, "fix_prompt": p} for i, p in zip(issues, prompts)],
+    }
     (out_dir / "report.json").write_text(json.dumps(result, indent=2))
     return result

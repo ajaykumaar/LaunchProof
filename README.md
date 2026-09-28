@@ -10,7 +10,7 @@ Built for the Startup Speedrun Hackathon (Sep 28, 2026).
 |---|---|
 | Agentic Payments | Tester records checkout via MCP; code replays success / decline / paywall-bypass |
 | Agents That Deploy Infrastructure | Fly Machines optional (enable with `FLY_*`); until then load runs in Brainbase sandbox / laptop. Janitor ready. |
-| Autonomous Organizations | Tester → Triage (Slack/Linear); Janitor schedule off until Fly is on |
+| Autonomous Organizations | Tester → Chaos → Critic → Triage; Janitor schedule off until Fly is on |
 
 **Disclosure:** head-start code existed before kickoff. Tell the organizers.
 
@@ -23,6 +23,8 @@ Built for the Startup Speedrun Hackathon (Sep 28, 2026).
 | Piece | Where | Notes |
 |---|---|---|
 | Tester (UI, journey, payment, report, fix prompts, **load**) | Brainbase sandbox | Default path |
+| Chaos (messy-human probes) | Brainbase | Budget-capped; handoff from Tester |
+| Critic (visual appeal) | Brainbase browser | Budget-capped; no Anthropic vision |
 | Triage | Brainbase | Slack / Linear |
 | Janitor | Brainbase schedule | **Disabled** until Fly credentials exist |
 | Multi-region load | Fly Machines | **Opt-in**: set `FLY_API_TOKEN` + `FLY_APP` (+ optional `LP_REGIONS`) |

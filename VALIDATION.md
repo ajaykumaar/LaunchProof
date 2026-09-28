@@ -9,12 +9,15 @@ manifest, MCP tools, external triggers) and against the vanilla CLI in
 | Capability | Implementation | Status |
 |---|---|---|
 | Tester agent (Claude Code + Daytona L) | `brainbase/agents/tester/` | Ready to push |
+| Chaos agent (messy-human probes) | `brainbase/agents/chaos/` | Ready to push |
+| Critic agent (visual appeal) | `brainbase/agents/critic/` | Ready to push |
 | MCP buyer tools | `launchproof/mcp_server.py` (+ `browser_close`) | Ready |
 | Journey replay | `python -m launchproof run --journey` | Ready |
 | Fix prompts by agent | `launchproof report --prompts` | Ready |
 | Triage → Slack/Linear | `brainbase/agents/triage/` + `notify.py` | Ready |
 | Janitor schedule | orchestration trigger `*/30` → janitor | Ready |
-| Orchestration graph | `brainbase/brainbase-orchestration.yaml` | Ready (canvas fallback if CLI rejects) |
+| Orchestration graph | `brainbase/brainbase-orchestration.yaml` | Ready (Tester↔Chaos↔Critic↔Triage; canvas fallback if CLI rejects) |
+| Smart UI budget | `launchproof/smart_ui.py` + webapp form stub | Ready (defaults + env/API) |
 | API / chat handoff | `launchproof/brainbase.py` + `api/server.py` | Ready |
 | Memory tables `runs` / `filed_issues` | Tester + Triage instructions | Configure in UI after push |
 | Evals | declared on all three agent manifests | Ready |

@@ -274,6 +274,58 @@ def test_brainbase_task_message_full_without_token_falls_back_to_ui_only():
     assert "--skip-pay --skip-load" in m and "--token None" not in m and "lp_" not in m
 
 
+def test_smart_ui_budget_defaults_and_clamps(monkeypatch):
+    from launchproof.smart_ui import budget_from_env, merge_into_ui, smart_ui_enabled
+    monkeypatch.delenv("LP_SMART_UI_BUDGET", raising=False)
+    monkeypatch.delenv("LP_MAX_CHAOS", raising=False)
+    monkeypatch.delenv("LP_MAX_VISION_VIEWS", raising=False)
+    monkeypatch.delenv("LP_SMART_UI_CREDITS", raising=False)
+    b = budget_from_env()
+    assert b["max_chaos_scenarios"] == 3 and b["max_vision_views"] == 4
+    assert smart_ui_enabled(b)
+    monkeypatch.setenv("LP_MAX_CHAOS", "99")
+    assert budget_from_env()["max_chaos_scenarios"] == 8  # clamp
+    assert not smart_ui_enabled({"max_chaos_scenarios": 0, "max_vision_views": 0,
+                                 "max_pages_hint": 5, "credit_soft_cap": 0})
+    ui = {"issues": [{"severity": "low", "kind": "missing_title", "where": "https://a.com", "detail": "x"}]}
+    smart = {
+        "status": "done",
+        "appeal_score": 72,
+        "budget": b,
+        "spent": {"chaos_scenarios": 1, "vision_views": 1},
+        "chaos_issues": [{"severity": "high", "kind": "chaos_double_submit", "where": "https://a.com", "detail": "dup"}],
+        "visual_issues": [{"severity": "medium", "kind": "visual_cta", "where": "https://a.com", "detail": "weak"}],
+    }
+    merged = merge_into_ui(ui, smart)
+    assert merged["appeal_score"] == 72
+    assert len(merged["issues"]) == 3
+    assert merged["smart_ui"]["status"] == "done"
+
+
+def test_brainbase_task_message_embeds_smart_ui_budget(monkeypatch):
+    from launchproof.brainbase import task_message
+    monkeypatch.delenv("LP_SMART_UI_BUDGET", raising=False)
+    m = task_message("https://a.com", "run1", None, False, budget={"max_chaos_scenarios": 1, "max_vision_views": 1,
+                                                                    "max_pages_hint": 2, "credit_soft_cap": 10})
+    assert "max_chaos_scenarios=1" in m and "Chaos" in m and "Critic" in m
+    m0 = task_message("https://a.com", "run1", None, False, budget={"max_chaos_scenarios": 0, "max_vision_views": 0,
+                                                                     "max_pages_hint": 5, "credit_soft_cap": 0})
+    assert "Smart UI is disabled" in m0
+
+
+def test_headline_includes_appeal_score():
+    bits = report.headline({"total": 50, "grade": "D", "parts": {}, "skipped": []},
+                           {"issues": [], "appeal_score": 72}, None, None)
+    assert any("Visual appeal 72/100" == b for b in bits)
+
+
+def test_chaos_visual_fix_prompt_templates():
+    p = report.fix_prompt({"kind": "chaos_double_submit", "where": "https://a.com/signup", "detail": "two POSTs"})
+    assert "Debounce" in p and "signup" in p
+    p2 = report.fix_prompt({"kind": "visual_cta", "where": "https://a.com/", "detail": "no primary"})
+    assert "call to action" in p2.lower() or "CTA" in p2 or "primary button" in p2
+
+
 def test_prompts_override_length_mismatch_falls_back(capsys):
     import asyncio
     from pathlib import Path

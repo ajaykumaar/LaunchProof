@@ -68,11 +68,14 @@ async def run(a) -> dict:
 
     if not a.skip_ui:
         from .ui_check import run_ui_check
+        from .smart_ui import merge_into_ui, skipped_payload
         _say("UI check: crawling on phone and desktop")
         ui = await run_ui_check(url, out, max_pages=a.max_pages if verified else min(a.max_pages, 20),
                                 delay_s=0.3 if verified else 1.0, respect_robots=not verified)
-        record["ui"] = ui.to_dict()
-        _say(f"UI check: {len(ui.pages) // 2} pages, {len(ui.issues)} findings")
+        # Local CLI has no Chaos/Critic sandboxes; mark smart UI skipped (Brainbase path merges later).
+        record["ui"] = merge_into_ui(ui.to_dict(), skipped_payload())
+        record["smart_ui"] = record["ui"].get("smart_ui")
+        _say(f"UI check: {len(ui.pages) // 2} pages, {len(ui.issues)} findings (smart UI: skipped on local CLI)")
 
     if not a.skip_pay:
         from .payment import run_payment_check

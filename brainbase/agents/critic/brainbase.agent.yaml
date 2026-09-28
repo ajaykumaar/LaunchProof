@@ -1,0 +1,28 @@
+schema: 1
+harness: claude-code
+machine_kind: daytona
+default_model: claude-sonnet-5
+agent:
+  name: Launchproof Critic
+  tagline: Visual appeal scoring — hierarchy, contrast, CTA clarity, mobile density
+instructions:
+  file: ./instructions.md
+entrypoint:
+  file: ./entrypoint.sh
+capabilities:
+  memory: false
+  browser: true
+mcp:
+  - name: launchproof
+    command: python3
+    args: ["-m", "launchproof.mcp_server"]
+    env:
+      PYTHONPATH: /workspace/launchproof
+    is_enabled: true
+evals:
+  - slug: respects-vision-budget
+    criteria: Pass only if views_used is less than or equal to max_vision_views from the handoff budget.
+  - slug: rubric-score
+    criteria: Pass when the reply includes appeal_score as an integer 0-100 and visual_issues using visual_* kinds from the skill.
+  - slug: no-anthropic
+    criteria: Pass only if the agent did not call Anthropic APIs or set ANTHROPIC_API_KEY; scoring used Brainbase browser observation only.

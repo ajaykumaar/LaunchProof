@@ -1,4 +1,8 @@
+# brainbase.agent.yaml — declarative agent manifest.
+# Committed to source control. Edit by hand, then `brainbase agent push`.
+
 schema: 1
+id: caadb6e2-a65d-49df-bed7-dc078c86990d
 harness: claude-code
 machine_kind: daytona
 default_model: claude-sonnet-5
@@ -9,11 +13,26 @@ instructions:
   file: ./instructions.md
 entrypoint:
   file: ./entrypoint.sh
+playbooks: []
+skills: []
+mcp: []
+evals:
+  - id: d7ad3249-3f78-4bda-b1ce-27dd888a8573
+    slug: no-duplicate-linear
+    criteria: Pass when the agent checked memory table filed_issues before creating
+      Linear issues and skipped kinds already filed for that URL.
+    enabled: true
+    judge_model: claude-sonnet-4-6
+    judge_type: model
+    output_shape: binary
+  - id: 6b0a4149-36ed-4feb-86d4-244730a2f7a5
+    slug: slack-summary-present
+    criteria: Pass when a Slack message (or notify send) includes the score, grade,
+      and at least one critical or high issue with evidence.
+    enabled: true
+    judge_model: claude-sonnet-4-6
+    judge_type: model
+    output_shape: binary
 capabilities:
   memory: true
   browser: false
-evals:
-  - slug: no-duplicate-linear
-    criteria: Pass when the agent checked memory table filed_issues before creating Linear issues and skipped kinds already filed for that URL.
-  - slug: slack-summary-present
-    criteria: Pass when a Slack message (or notify send) includes the score, grade, and at least one critical or high issue with evidence.

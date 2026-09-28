@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Runs in /workspace before the agent starts. Idempotent. Secrets are already in the environment.
-# Must leave /workspace/launchproof ready even if Playwright deps fail (UI can retry install).
+# Critic needs browser to re-visit live URLs for visual appeal (Brainbase credits, no Anthropic).
 set -uo pipefail
 
-log() { echo "[launchproof-entrypoint] $*"; }
+log() { echo "[launchproof-critic-entrypoint] $*"; }
 
 REPO="${LP_REPO:-}"
 if [ -z "$REPO" ]; then
@@ -11,7 +10,6 @@ if [ -z "$REPO" ]; then
   exit 1
 fi
 
-# Accept "github.com/org/repo.git" or a full https URL.
 case "$REPO" in
   https://*|http://*|git@*) CLONE_HOST="$REPO" ;;
   *) CLONE_HOST="https://${REPO}" ;;
@@ -52,10 +50,10 @@ log "installing Playwright Chromium (best effort)"
 if ! python3 -m playwright install --with-deps chromium >/tmp/pw.log 2>&1; then
   (sudo -n python3 -m playwright install-deps chromium >>/tmp/pw.log 2>&1 || true)
   python3 -m playwright install chromium >>/tmp/pw.log 2>&1 \
-    || log "WARN: Chromium install failed; see /tmp/pw.log (UI/payment may need a retry)"
+    || log "WARN: Chromium install failed; see /tmp/pw.log"
 fi
 
-if python3 -c "import launchproof; print('launchproof ready')" ; then
+if python3 -c "import launchproof; print('critic ready')" ; then
   log "OK: /workspace/launchproof is ready"
 else
   log "ERROR: launchproof import failed"

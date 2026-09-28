@@ -33,18 +33,33 @@ def _client() -> httpx.Client:
     return httpx.Client(base_url=BASE, headers={"Authorization": f"Bearer {key}"}, timeout=30)
 
 
-def task_message(url: str, run_id: str, token: str | None, full: bool, regions: str | None = None) -> str:
+def task_message(url: str, run_id: str, token: str | None, full: bool, regions: str | None = None,
+                 budget: dict | None = None) -> str:
     """The exact instruction we send; the agent's instructions (brainbase/agents/tester) do the rest.
 
     Multi-region Fly is opt-in: pass regions only when Fly is configured (FLY_API_TOKEN + FLY_APP),
     or set LP_REGIONS. Otherwise the agent runs load in its sandbox / on this machine.
+    Smart UI budget is always embedded so Chaos/Critic stop at hard caps (no Anthropic vision).
     """
+    from .smart_ui import budget_from_env, format_budget_line, smart_ui_enabled
+
+    b = budget_from_env(budget)
+    budget_line = format_budget_line(b)
+    smart_line = (
+        f" After the heuristic UI check, run Smart UI within budget ({budget_line}): "
+        f"hand off to Chaos then Critic (prefer Chaos interesting_states for vision). "
+        f"Merge chaos_issues + visual_issues into the report, record smart_ui.budget/spent and "
+        f"appeal_score in report.json. Stop when caps hit. Do not use Anthropic for vision."
+        if smart_ui_enabled(b)
+        else f" Smart UI is disabled ({budget_line}); skip Chaos/Critic."
+    )
     if not full:
         return (f"Run a UI-only Launchproof check on {url}. Use run id {run_id}: "
-                f"`python3 -m launchproof run {url} --skip-pay --skip-load --run-id {run_id}`. Then reply with the summary.")
+                f"`python3 -m launchproof run {url} --skip-pay --skip-load --run-id {run_id}`. "
+                f"{smart_line} Then reply with the summary.")
     if not token:
         # Never embed the string "None" as --token; fall back to UI-only so ownership stays enforced.
-        return task_message(url, run_id, None, full=False)
+        return task_message(url, run_id, None, full=False, regions=regions, budget=b)
     from .load.fly import fly_configured
     region_arg = (regions if regions is not None else os.getenv("LP_REGIONS", "")).strip()
     use_fly = bool(region_arg) and fly_configured()
@@ -54,7 +69,7 @@ def task_message(url: str, run_id: str, token: str | None, full: bool, regions: 
             f"then call browser_close, then run `python3 -m launchproof run {url} --token {token} "
             f"--journey journey.json{fly_flags} --i-understand-costs --run-id {run_id}`"
             f"{'' if use_fly else ' (omit --regions: load runs in this sandbox until Fly credentials are set)'}. "
-            f"Rewrite the fix prompts, rebuild the report, hand off to triage, and reply with the summary.")
+            f"{smart_line} Rewrite the fix prompts, rebuild the report, hand off to triage, and reply with the summary.")
 
 def start(message: str, agent_id: str | None = None, title: str = "Launchproof run") -> str:
     with _client() as c:
@@ -120,8 +135,19 @@ def main(argv=None) -> int:
     r.add_argument("--full", action="store_true")
     r.add_argument("--run-id", default=f"bb{int(time.time())}")
     r.add_argument("--out", default="runs")
+    r.add_argument("--max-chaos", type=int, default=None, help="Smart UI: max Chaos scenarios")
+    r.add_argument("--max-vision", type=int, default=None, help="Smart UI: max Critic vision views")
+    r.add_argument("--smart-ui-credits", type=int, default=None, help="Smart UI soft credit cap")
     a = ap.parse_args(argv)
-    tid = start(task_message(a.url, a.run_id, a.token, a.full))
+    ov = {}
+    if a.max_chaos is not None:
+        ov["max_chaos_scenarios"] = a.max_chaos
+    if a.max_vision is not None:
+        ov["max_vision_views"] = a.max_vision
+    if a.smart_ui_credits is not None:
+        ov["credit_soft_cap"] = a.smart_ui_credits
+    from .smart_ui import budget_from_env
+    tid = start(task_message(a.url, a.run_id, a.token, a.full, budget=budget_from_env(ov or None)))
     print(f"thread {tid} started")
     st = wait(tid, on_message=lambda m: print(m[:2000]))
     print(f"status: {st}")
