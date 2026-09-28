@@ -1,0 +1,8 @@
+# Only used to build and push the load-engine image:
+#   fly apps create launchproof-load-YOU
+#   fly deploy --build-only --push -a launchproof-load-YOU --image-label engine -c fly.load.toml
+# Machines are created per run through the Machines API (launchproof/load/fly.py), never by `fly deploy`.
+app = "launchproof-load-CHANGEME"
+
+[build]
+  dockerfile = "Dockerfile.load"

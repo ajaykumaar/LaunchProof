@@ -1,0 +1,12 @@
+# Runtime deps for CLI, API, MCP tools, and Brainbase sandbox entrypoints.
+# anthropic is optional: Brainbase Tester uses its own model + MCP journey; keep for local fallback.
+playwright==1.56.0
+httpx==0.28.1
+anthropic>=0.69
+stripe>=12
+dnspython==2.8.0
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
+pytest>=8
+mcp>=1.2,<2

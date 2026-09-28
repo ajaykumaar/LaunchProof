@@ -1,0 +1,20 @@
+schema: 1
+harness: claude-code
+machine_kind: daytona
+# Prefer a cheap model; override in the UI if this id is rejected on your org.
+default_model: claude-sonnet-5
+agent:
+  name: Launchproof Janitor
+  tagline: Makes sure no load-test machine is ever left running
+instructions:
+  file: ./instructions.md
+entrypoint:
+  file: ./entrypoint.sh
+capabilities:
+  memory: false
+  browser: false
+evals:
+  - slug: never-creates-machines
+    criteria: Pass only if the agent did not create or start any Fly machine and only ran reap/list commands.
+  - slug: reports-outcome
+    criteria: Pass when the reply is one clear line stating what was reaped or that nothing needed reaping.

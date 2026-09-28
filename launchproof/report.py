@@ -1,0 +1,328 @@
+"""Score, fix prompts, HTML report and the 1200x630 share card.
+
+Score out of 100 = UI 35 + Payments 35 + Load 30. Parts that were not run are left out and the
+score is rescaled, so a UI-only free run still gets a fair number (and says which parts were skipped).
+"""
+from __future__ import annotations
+
+import html
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse
+
+SEV_POINTS = {"critical": 10, "high": 5, "medium": 3, "low": 1}
+LOAD_STEPS = [(800, 30), (400, 25), (200, 20), (100, 15), (50, 10), (25, 6), (10, 3)]
+
+
+# ---------- issues ----------
+
+def dedupe_ui(issues: list[dict]) -> list[dict]:
+    """Phone and desktop often report the same problem on the same URL: merge them."""
+    merged: dict[tuple, dict] = {}
+    for i in issues:
+        url = i["where"].split(" (")[0]
+        key = (i["kind"], url)
+        vp = i["where"][len(url):].strip(" ()") or None
+        if key in merged:
+            if vp and vp not in merged[key]["viewports"]:
+                merged[key]["viewports"].append(vp)
+        else:
+            merged[key] = {**i, "where": url, "viewports": [vp] if vp else []}
+    return list(merged.values())
+
+
+def load_issues(load: dict | None) -> list[dict]:
+    if not load:
+        return []
+    out = []
+    for region, r in (load.get("regions") or {}).items():
+        bp = r.get("break_point_users")
+        if not bp:
+            continue
+        last = (r.get("stages") or [{}])[-1]
+        sev = "critical" if bp <= 50 else "high" if bp <= 200 else "medium"
+        errs = "; ".join(f"{k} (x{v})" for k, v in (last.get("top_errors") or {}).items())
+        out.append({"severity": sev, "kind": "load_break", "where": f"{r.get('url')} from {region}",
+                    "detail": f"Broke at {bp} concurrent users: {r.get('stop_reason', '').split(': ', 1)[-1]}. "
+                              f"p95 {last.get('p95_ms')} ms, errors {last.get('error_rate', 0):.0%}. {errs}".strip(),
+                    "paths": r.get("paths"), "shot": None})
+    return out
+
+
+# ---------- score ----------
+
+def score(ui: dict | None, pay: dict | None, load: dict | None) -> dict:
+    parts, skipped = {}, []
+    if ui is not None:
+        ded = dedupe_ui(ui.get("issues", []))
+        lows = sum(1 for i in ded if i["severity"] == "low")
+        pts = sum(SEV_POINTS[i["severity"]] for i in ded if i["severity"] != "low") + min(lows, 5)
+        parts["ui"] = (max(0, 35 - pts), 35)
+    else:
+        skipped.append("ui")
+    if pay is not None:
+        by = {c["case"]: c for c in pay.get("cases", [])}
+        s, d, b = by.get("success", {}), by.get("decline"), by.get("bypass")
+        p = 0
+        p += 10 if s.get("reached_checkout") else 0
+        p += 10 if s.get("outcome") == "paid" else 0
+        p += 5 if s.get("unlocked") else 0
+        p += 5 if (d and d.get("outcome") == "declined_shown" and not d.get("unlocked")) else 0
+        p += 5 if (b and b.get("outcome") == "not_unlocked") else 0
+        if b and b.get("unlocked"):
+            p = min(p, 15)  # anyone can get the paid plan for free: payments cannot score well
+        parts["payments"] = (p, 35)
+    else:
+        skipped.append("payments")
+    if load is not None:
+        survived = load.get("combined", {}).get("survived_users_per_region") or \
+            min((r.get("survived_users", 0) for r in (load.get("regions") or {}).values()), default=0)
+        parts["load"] = (next((pts for users, pts in LOAD_STEPS if survived >= users), 0), 30)
+    else:
+        skipped.append("load")
+    got = sum(v[0] for v in parts.values())
+    of = sum(v[1] for v in parts.values()) or 1
+    total = round(100 * got / of)
+    grade = "A" if total >= 90 else "B" if total >= 75 else "C" if total >= 60 else "D" if total >= 40 else "F"
+    return {"total": total, "grade": grade, "parts": {k: {"got": v[0], "of": v[1]} for k, v in parts.items()},
+            "skipped": skipped}
+
+
+# ---------- fix prompts ----------
+
+TEMPLATES = {
+    "horizontal_overflow": "On {where}, the page scrolls sideways on a 390px-wide phone. The elements sticking out are: {detail_tail}. "
+                           "Make this page responsive: no element may be wider than the viewport. Wrap wide tables in a container with "
+                           "overflow-x:auto, replace fixed pixel widths with max-width:100% or responsive units, and let flex rows wrap. "
+                           "Check at 390px width that document.documentElement.scrollWidth equals window.innerWidth.",
+    "console_errors": "On {where}, the browser console shows these errors: {detail}. Find the code that causes each one and fix it. "
+                      "If a third-party script (analytics, chat widget) is not loaded yet, guard the call (e.g. window.analytics?.track) "
+                      "or load the script before calling it. The page must load with zero console errors.",
+    "failed_requests": "On {where}, these requests fail: {detail}. For each one, either add the missing file or route, fix the URL, "
+                       "or remove the reference. Nothing the page requests on load should return 4xx or 5xx.",
+    "broken_images": "On {where}, these images do not load: {detail}. Add the missing image files (or fix their paths) and give every "
+                     "<img> an alt text and explicit width/height.",
+    "blank_page": "On {where}, the page renders almost nothing (blank or stuck loading). Check for a crash during render, a failed data "
+                  "fetch with no fallback, or a missing environment variable in production. Show a real error state instead of a blank screen.",
+    "http_error": "{where} returns {detail}. Fix the route or the server error so it returns 200, or remove links pointing to it.",
+    "page_failed": "{where} failed to load: {detail}. Make sure the page loads within 20 seconds on a normal connection.",
+    "slow_page": "{where} took {detail_tail} to load. Find what blocks the load event (large images, render-blocking scripts, slow API "
+                 "calls during server render) and get it under 3 seconds.",
+    "small_tap_targets": "On {where} (phone), {detail}. Make every button and link at least 44x44 px on mobile (padding, not just font size).",
+    "missing_title": "Add a descriptive <title> to {where}.",
+    "missing_description": "Add a <meta name=\"description\"> and Open Graph tags (og:title, og:description, og:image) to {where} so "
+                           "links shared on X, LinkedIn and Slack show a proper preview.",
+    "missing_favicon": "Add a favicon (<link rel=\"icon\" href=\"/favicon.ico\">) plus an apple-touch-icon to {where}.",
+    "security_headers": "Add these HTTP response headers to every page: {detail_tail}. Recommended values: Strict-Transport-Security: "
+                        "max-age=31536000; includeSubDomains, X-Content-Type-Options: nosniff, X-Frame-Options: DENY, Referrer-Policy: "
+                        "strict-origin-when-cross-origin, and a Content-Security-Policy that allows only the domains you use.",
+    "checkout_unreachable": "A new visitor to {where} cannot find a way to pay. Make the path obvious: a clear Upgrade/Buy button on the "
+                            "pricing page and after signup, leading straight to Stripe Checkout.",
+    "checkout_failed": "Paying with Stripe's test card 4242 4242 4242 4242 fails on {where}: {detail}. Check the Checkout Session "
+                       "creation (price id, mode, success_url and cancel_url are absolute URLs) and the Stripe keys for this environment.",
+    "no_unlock": "After a successful test payment the customer lands on {where} but the paid feature is not unlocked. Handle the "
+                 "checkout.session.completed webhook: verify the signature, look up the user by client_reference_id, set their plan, "
+                 "and make the success page read the plan from your database.",
+    "decline_silent": "When a card is declined on {where} the customer sees no error. Show the error message Stripe returns "
+                      "(error.message from confirmPayment) next to the card field and keep the form usable.",
+    "decline_unlocked": "A declined card still unlocked the paid plan on {where}. Only grant access after Stripe confirms payment "
+                        "(checkout.session.completed with payment_status=paid, or payment_intent.succeeded).",
+    "paywall_bypass": "Critical: opening {where} with a made-up session_id unlocks the paid plan without paying. Never grant access "
+                      "because the browser reached the success URL. In the success handler, retrieve the Checkout Session from Stripe "
+                      "with your secret key, check payment_status == 'paid' and that client_reference_id matches the signed-in user, "
+                      "and grant access in the checkout.session.completed webhook as the source of truth.",
+    "stripe_backend": "Stripe reports: {detail}. Fix the webhook endpoint (correct URL, returns 2xx within 10 seconds, verifies the "
+                      "signature with the right signing secret for this mode).",
+    "load_break": "Under load, {where} {detail_lower} The failing paths were {paths}. Likely causes: too few database connections, "
+                  "no caching on read-heavy endpoints, or a single small server. Add a connection pooler, cache this response "
+                  "(even 10 seconds helps), and move slow work out of the request. Then re-run the load test.",
+}
+
+
+def fix_prompt(issue: dict) -> str:
+    detail = issue.get("detail", "")
+    tail = detail.split(": ", 1)[-1] if ": " in detail else detail.replace("Missing: ", "").replace("Loaded in ", "")
+    t = TEMPLATES.get(issue["kind"], "Fix this issue on {where}: {detail}")
+    return t.format(where=issue.get("where", ""), detail=detail, detail_tail=tail,
+                    detail_lower=detail[0].lower() + detail[1:] if detail else "",
+                    paths=", ".join(issue.get("paths") or []) or "the tested pages")
+
+
+def claude_fix_prompts(issues: list[dict]) -> list[str] | None:
+    """One call for all issues: Claude rewrites each template into a specific, paste-ready prompt."""
+    if not os.getenv("ANTHROPIC_API_KEY") or not issues:
+        return None
+    try:
+        from anthropic import Anthropic
+        payload = [{"n": n, "kind": i["kind"], "where": i["where"], "evidence": i.get("detail", ""),
+                    "draft": fix_prompt(i)} for n, i in enumerate(issues)]
+        msg = Anthropic().messages.create(
+            model=os.getenv("LP_MODEL", "claude-sonnet-5"), max_tokens=4000,
+            system="You write fix prompts that a founder pastes into Cursor, Lovable, Bolt or Claude Code. "
+                   "Each prompt: 2-5 sentences, names the exact page and evidence, says what done looks like. "
+                   "No preamble, no em dashes. Return JSON: a list of strings in the same order.",
+            messages=[{"role": "user", "content": json.dumps(payload)}])
+        text = "".join(b.text for b in msg.content if b.type == "text")
+        out = json.loads(text[text.index("["): text.rindex("]") + 1])
+        if len(out) == len(issues):
+            print(f"fix prompts: Claude rewrote {len(out)} prompts", flush=True)
+            return out
+        print(f"fix prompts: Claude returned {len(out)} prompts for {len(issues)} issues; using templates", flush=True)
+        return None
+    except Exception as ex:
+        print(f"fix prompts: Claude failed ({ex}); using templates", flush=True)
+        return None
+
+
+# ---------- headline + share card ----------
+
+def headline(sc: dict, ui: dict | None, pay: dict | None, load: dict | None) -> list[str]:
+    bits = []
+    if load:
+        regions = load.get("regions") or {}
+        n = len(regions)
+        survived = min((r.get("survived_users", 0) for r in regions.values()), default=0)
+        broke = [r["break_point_users"] for r in regions.values() if r.get("break_point_users")]
+        bits.append(f"Survived {survived} users{' per region' if n > 1 else ''}" + (f" from {n} regions" if n > 1 else "")
+                    + (f", broke at {min(broke)}" if broke else ""))
+    if pay:
+        by = {c["case"]: c for c in pay.get("cases", [])}
+        if by.get("bypass", {}).get("unlocked"):
+            bits.append("Paywall can be bypassed")
+        elif by.get("success", {}).get("outcome") == "paid" and by["success"].get("unlocked"):
+            bits.append("Checkout works")
+        else:
+            bits.append("Checkout broken")
+    if ui:
+        n = len(dedupe_ui(ui.get("issues", [])))
+        bits.append(f"{n} UI issue{'s' if n != 1 else ''}" if n else "No UI issues")
+    return bits
+
+
+CARD_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
+*{{margin:0;box-sizing:border-box}}body{{width:1200px;height:630px;font-family:Inter,system-ui,-apple-system,sans-serif;
+background:#0B0D12;color:#F4F5F7;padding:64px 72px;display:flex;flex-direction:column;justify-content:space-between}}
+.top{{display:flex;justify-content:space-between;align-items:center;font-size:26px;color:#9AA3AF;letter-spacing:.02em}}
+.brand b{{color:#F4F5F7}}.site{{font-size:64px;font-weight:700;letter-spacing:-.02em;margin-top:8px;overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap;max-width:760px}}
+.row{{display:flex;align-items:flex-end;justify-content:space-between}}
+.score{{font-size:190px;font-weight:800;line-height:.85;color:{color}}}.score small{{font-size:48px;color:#6B7280;font-weight:600}}
+ul{{list-style:none;font-size:34px;line-height:1.55}}li:before{{content:"";display:inline-block;width:14px;height:14px;
+border-radius:50%;background:{color};margin-right:18px;vertical-align:middle}}
+.foot{{font-size:22px;color:#6B7280}}</style></head><body>
+<div><div class="top"><span class="brand"><b>Launchproof</b> launch-day test</span><span>{date}</span></div>
+<div class="site">{site}</div></div>
+<div class="row"><ul>{items}</ul><div class="score">{score}<small>/100</small></div></div>
+<div class="foot">UI on phone + desktop · real test checkout · load from {regions}</div></body></html>"""
+
+
+async def share_card(out_png: Path, site: str, sc: dict, bits: list[str], regions: str) -> Path:
+    from playwright.async_api import async_playwright
+    color = "#34D399" if sc["total"] >= 80 else "#FBBF24" if sc["total"] >= 60 else "#F87171"
+    doc = CARD_HTML.format(color=color, site=html.escape(site), date=datetime.now().strftime("%b %d, %Y"),
+                           items="".join(f"<li>{html.escape(b)}</li>" for b in bits[:3]), score=sc["total"],
+                           regions=html.escape(regions))
+    async with async_playwright() as pw:
+        b = await pw.chromium.launch()
+        p = await b.new_page(viewport={"width": 1200, "height": 630})
+        await p.set_content(doc)
+        await p.screenshot(path=str(out_png))
+        await b.close()
+    return out_png
+
+
+# ---------- HTML report ----------
+
+REPORT_CSS = """
+:root{--bg:#F7F7F8;--card:#fff;--ink:#111318;--muted:#5E6470;--line:#E6E7EA;--crit:#DC2626;--high:#EA580C;--med:#CA8A04;--low:#6B7280;--ok:#059669}
+@media (prefers-color-scheme:dark){:root{--bg:#0B0D12;--card:#141821;--ink:#F4F5F7;--muted:#9AA3AF;--line:#262B36}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Inter,system-ui,-apple-system,sans-serif}
+main{max-width:980px;margin:0 auto;padding:32px 16px 80px}h1{font-size:30px;margin:0 0 4px}h2{font-size:20px;margin:36px 0 12px}
+.muted{color:var(--muted)}.hero{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:center}
+.big{font-size:84px;font-weight:800;line-height:1}.big small{font-size:24px;color:var(--muted)}
+.parts{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}.pill{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0}
+.sev{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:6px;color:#fff}
+.critical{background:var(--crit)}.high{background:var(--high)}.medium{background:var(--med)}.low{background:var(--low)}
+.kind{font-weight:600;margin-left:8px}.where{font-size:14px;color:var(--muted);word-break:break-all}
+pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;font:13px/1.5 ui-monospace,Menlo,monospace;margin:10px 0 0}
+button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:6px;padding:4px 10px;cursor:pointer;margin-top:8px}
+img.shot{max-width:100%;max-height:420px;object-fit:cover;object-position:top;border:1px solid var(--line);border-radius:8px;margin-top:10px}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left}
+.tablewrap{overflow-x:auto}.share img{max-width:100%;border-radius:12px;border:1px solid var(--line)}
+@media (max-width:640px){.hero{grid-template-columns:1fr}.big{font-size:64px}}
+"""
+
+
+def render_html(run: dict, issues: list[dict], prompts: list[str], sc: dict, bits: list[str], card_name: str | None) -> str:
+    e = html.escape
+    site = urlparse(run["url"]).netloc
+    parts = "".join(f'<span class="pill">{ {"ui": "UI"}.get(k, k.title())} {v["got"]}/{v["of"]}</span>' for k, v in sc["parts"].items())
+    skipped = f'<p class="muted">Not run: {", ".join(sc["skipped"])}.</p>' if sc["skipped"] else ""
+    cards = []
+    for n, (i, p) in enumerate(zip(issues, prompts)):
+        shot = f'<img class="shot" loading="lazy" src="{e(i["shot"])}" alt="screenshot">' if i.get("shot") else ""
+        vps = f' ({", ".join(i["viewports"])})' if i.get("viewports") else ""
+        cards.append(f'''<div class="card"><span class="sev {i["severity"]}">{i["severity"]}</span><span class="kind">{e(i["kind"].replace("_", " "))}</span>
+<div class="where">{e(i["where"])}{e(vps)}</div><p>{e(i.get("detail", ""))}</p>
+<details><summary>Fix prompt (paste into your AI coding tool)</summary><pre id="p{n}">{e(p)}</pre>
+<button onclick="navigator.clipboard.writeText(document.getElementById('p{n}').innerText);this.innerText='Copied'">Copy</button></details>{shot}</div>''')
+    load_rows = ""
+    for region, r in ((run.get("load") or {}).get("regions") or {}).items():
+        for s in r.get("stages", []):
+            load_rows += (f"<tr><td>{e(region)}</td><td>{s['users']}</td><td>{s['rps']}</td><td>{s['p50_ms']}</td>"
+                          f"<td>{s['p95_ms']}</td><td>{s['error_rate']:.1%}</td><td>{e(s.get('reason') or '')}</td></tr>")
+    load_tbl = (f'<h2>Load test</h2><div class="tablewrap"><table><tr><th>Region</th><th>Users</th><th>Req/s</th><th>p50 ms</th>'
+                f'<th>p95 ms</th><th>Errors</th><th>Break</th></tr>{load_rows}</table></div>') if load_rows else ""
+    pay_rows = "".join(f"<tr><td>{e(c['case'])}</td><td>{e(c['outcome'])}</td><td>{'' if c.get('unlocked') is None else ('yes' if c['unlocked'] else 'no')}</td>"
+                       f"<td>{e(c.get('error_text') or '')}</td><td>{c.get('seconds', '')}s</td></tr>"
+                       for c in (run.get("payments") or {}).get("cases", []))
+    pay_tbl = (f'<h2>Payment test</h2><div class="tablewrap"><table><tr><th>Case</th><th>Outcome</th><th>Unlocked</th><th>Message</th>'
+               f'<th>Time</th></tr>{pay_rows}</table></div>') if pay_rows else ""
+    share = f'<h2>Share card</h2><div class="share"><img src="{e(card_name)}" alt="share card"></div>' if card_name else ""
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Launchproof report</title><meta property="og:title" content="{e(site)} scored {sc['total']}/100 on Launchproof">
+<meta property="og:description" content="{e(' · '.join(bits))}">{f'<meta property="og:image" content="{e(card_name)}">' if card_name else ''}
+<style>{REPORT_CSS}</style></head><body><main>
+<div class="hero"><div><h1>{e(site)}</h1><div class="muted">{e(run['url'])} · run {e(run.get('run_id') or '')} · {e(run.get('finished_at') or '')}</div>
+<div class="parts">{parts}</div>{skipped}<p>{e(' · '.join(bits))}</p></div><div class="big">{sc['total']}<small>/100</small></div></div>
+<h2>What broke ({len(issues)})</h2>{''.join(cards) or '<p>Nothing. Ship it.</p>'}
+{pay_tbl}{load_tbl}{share}
+<p class="muted" style="margin-top:40px">Launchproof ran a headless browser on phone and desktop, a Stripe test-mode checkout, and a
+labeled load test (User-Agent LaunchproofLoadTest/1.0) against a site whose owner verified control of it.</p>
+</main></body></html>"""
+
+
+async def build_report(run: dict, out_dir: Path, prompts_override: list[str] | None = None) -> dict:
+    ui, pay, load = run.get("ui"), run.get("payments"), run.get("load")
+    issues = []
+    if ui:
+        issues += dedupe_ui(ui.get("issues", []))
+    if pay:
+        issues += pay.get("issues", [])
+    issues += load_issues(load)
+    order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    issues.sort(key=lambda i: order[i["severity"]])
+    if prompts_override is not None:
+        if len(prompts_override) == len(issues):
+            prompts = [str(p) for p in prompts_override]  # Brainbase agent rewrite from evidence
+        else:
+            print(f"prompts_override length {len(prompts_override)} != issues {len(issues)}; using templates", flush=True)
+            prompts = claude_fix_prompts(issues) or [fix_prompt(i) for i in issues]
+    else:
+        prompts = claude_fix_prompts(issues) or [fix_prompt(i) for i in issues]
+    sc = score(ui, pay, load)
+    bits = headline(sc, ui, pay, load)
+    regions = ", ".join((load or {}).get("regions", {}).keys()) or "not run"
+    card = None
+    try:
+        card = await share_card(out_dir / "share-card.png", urlparse(run["url"]).netloc, sc, bits, regions)
+    except Exception as ex:
+        print(f"share card failed: {ex}")
+    doc = render_html(run, issues, prompts, sc, bits, card.name if card else None)
+    (out_dir / "report.html").write_text(doc)
+    result = {"score": sc, "headline": bits, "issues": [{**i, "fix_prompt": p} for i, p in zip(issues, prompts)]}
+    (out_dir / "report.json").write_text(json.dumps(result, indent=2))
+    return result

@@ -1,0 +1,19 @@
+schema: 1
+harness: claude-code
+machine_kind: daytona
+default_model: claude-sonnet-5
+agent:
+  name: Launchproof Triage
+  tagline: Turns a Launchproof report into Slack updates and Linear issues
+instructions:
+  file: ./instructions.md
+entrypoint:
+  file: ./entrypoint.sh
+capabilities:
+  memory: true
+  browser: false
+evals:
+  - slug: no-duplicate-linear
+    criteria: Pass when the agent checked memory table filed_issues before creating Linear issues and skipped kinds already filed for that URL.
+  - slug: slack-summary-present
+    criteria: Pass when a Slack message (or notify send) includes the score, grade, and at least one critical or high issue with evidence.

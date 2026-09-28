@@ -1,0 +1,55 @@
+# Launchproof team on Brainbase.
+# From this directory (brainbase/): claim each agent, then:
+#   brainbase orchestration create   # first time
+#   brainbase orchestration push
+# Member folders must be ./agents/<slug>/ next to this file (Brainbase CLI convention).
+# If the CLI rejects edge/trigger syntax, draw the same graph in the orchestration canvas.
+schema: 1
+orchestration:
+  name: Launchproof Team
+  description: Tester runs launch-day checks, Triage files the results, Janitor guarantees teardown
+  credit_limit: 400
+members:
+  - slug: tester
+    name: Launchproof Tester
+  - slug: triage
+    name: Launchproof Triage
+  - slug: janitor
+    name: Launchproof Janitor
+edges:
+  - from: tester
+    to: triage
+    description: Report ready. File it in Slack and Linear.
+    payload_schema:
+      type: object
+      required: [url, run_id, score, headline, issues]
+      properties:
+        url: {type: string}
+        run_id: {type: string}
+        score: {type: integer}
+        grade: {type: string}
+        report_link: {type: string}
+        headline: {type: array, items: {type: string}}
+        issues:
+          type: array
+          items:
+            type: object
+            required: [severity, kind, detail]
+            properties:
+              severity: {type: string, enum: [critical, high, medium, low]}
+              kind: {type: string}
+              where: {type: string}
+              detail: {type: string}
+              fix_prompt: {type: string}
+    settings:
+      max_handoffs: 1
+triggers:
+  # Disabled while Fly billing is blocked. Set is_active: true after FLY_API_TOKEN + FLY_APP are set.
+  - type: schedule
+    node_id: 7c3a1e20-9b4d-4f1a-8e2c-a1b2c3d4e5f6
+    is_active: false
+    config:
+      cron_expression: "*/30 * * * *"   # UTC
+    to:
+      - agent: janitor
+        description: Reap any Launchproof load machine older than 10 minutes

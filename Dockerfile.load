@@ -1,0 +1,8 @@
+# Load engine image for Fly Machines. Tiny on purpose: python + httpx + the engine module.
+FROM python:3.12-slim
+RUN pip install --no-cache-dir httpx==0.28.1
+WORKDIR /app
+COPY launchproof/__init__.py launchproof/__init__.py
+COPY launchproof/load/__init__.py launchproof/load/engine.py launchproof/load/
+# Exits when the stage plan ends, the break point is hit, or after 300 s. Machine auto-destroys after exit.
+CMD ["python", "-m", "launchproof.load.engine"]

@@ -1,0 +1,11 @@
+.env
+.env.local
+.env.*.local
+api_keys.txt
+.brainbase/
+**/secrets.env
+runs/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

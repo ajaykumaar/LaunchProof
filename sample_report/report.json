@@ -1,0 +1,125 @@
+{
+  "score": {
+    "total": 46,
+    "grade": "D",
+    "parts": {
+      "ui": {
+        "got": 16,
+        "of": 35
+      },
+      "payments": {
+        "got": 15,
+        "of": 35
+      },
+      "load": {
+        "got": 15,
+        "of": 30
+      }
+    },
+    "skipped": []
+  },
+  "headline": [
+    "Survived 100 users, broke at 200",
+    "Paywall can be bypassed",
+    "7 UI issues"
+  ],
+  "issues": [
+    {
+      "severity": "critical",
+      "kind": "paywall_bypass",
+      "where": "http://localhost:8100/dashboard",
+      "detail": "Opening the payment success URL with a fake session id unlocked the paid plan without paying. The app trusts the redirect instead of verifying the payment with Stripe.",
+      "shot": "pay-bypass.png",
+      "fix_prompt": "Critical: opening http://localhost:8100/dashboard with a made-up session_id unlocks the paid plan without paying. Never grant access because the browser reached the success URL. In the success handler, retrieve the Checkout Session from Stripe with your secret key, check payment_status == 'paid' and that client_reference_id matches the signed-in user, and grant access in the checkout.session.completed webhook as the source of truth."
+    },
+    {
+      "severity": "high",
+      "kind": "console_errors",
+      "where": "http://localhost:8100/about",
+      "detail": "Uncaught: Cannot read properties of undefined (reading 'track'); Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "shot": "02-phone.png",
+      "viewports": [
+        "phone",
+        "desktop"
+      ],
+      "fix_prompt": "On http://localhost:8100/about, the browser console shows these errors: Uncaught: Cannot read properties of undefined (reading 'track'); Failed to load resource: the server responded with a status of 404 (Not Found). Find the code that causes each one and fix it. If a third-party script (analytics, chat widget) is not loaded yet, guard the call (e.g. window.analytics?.track) or load the script before calling it. The page must load with zero console errors."
+    },
+    {
+      "severity": "high",
+      "kind": "failed_requests",
+      "where": "http://localhost:8100/about",
+      "detail": "404 http://localhost:8100/static/team.png",
+      "shot": "02-phone.png",
+      "viewports": [
+        "phone",
+        "desktop"
+      ],
+      "fix_prompt": "On http://localhost:8100/about, these requests fail: 404 http://localhost:8100/static/team.png. For each one, either add the missing file or route, fix the URL, or remove the reference. Nothing the page requests on load should return 4xx or 5xx."
+    },
+    {
+      "severity": "high",
+      "kind": "load_break",
+      "where": "http://localhost:8100 from local",
+      "detail": "Broke at 200 concurrent users: p95 871 ms > 3x baseline (44 ms). p95 871 ms, errors 1%. 503 /api/feed: {\"error\":\"database connection pool exhausted\"} (x4); 503 /: {\"error\":\"database connection pool exhausted\"} (x3); 503 /pricing: {\"error\":\"database connection pool exhausted\"} (x1)",
+      "paths": [
+        "/",
+        "/api/feed",
+        "/pricing",
+        "/about",
+        "/signup"
+      ],
+      "shot": null,
+      "fix_prompt": "Under load, http://localhost:8100 from local broke at 200 concurrent users: p95 871 ms > 3x baseline (44 ms). p95 871 ms, errors 1%. 503 /api/feed: {\"error\":\"database connection pool exhausted\"} (x4); 503 /: {\"error\":\"database connection pool exhausted\"} (x3); 503 /pricing: {\"error\":\"database connection pool exhausted\"} (x1) The failing paths were /, /api/feed, /pricing, /about, /signup. Likely causes: too few database connections, no caching on read-heavy endpoints, or a single small server. Add a connection pooler, cache this response (even 10 seconds helps), and move slow work out of the request. Then re-run the load test."
+    },
+    {
+      "severity": "medium",
+      "kind": "horizontal_overflow",
+      "where": "http://localhost:8100/pricing",
+      "detail": "Page scrolls sideways. Widest elements: TABLE, TBODY, TR, TH, TH",
+      "shot": "01-phone.png",
+      "viewports": [
+        "phone"
+      ],
+      "fix_prompt": "On http://localhost:8100/pricing, the page scrolls sideways on a 390px-wide phone. The elements sticking out are: TABLE, TBODY, TR, TH, TH. Make this page responsive: no element may be wider than the viewport. Wrap wide tables in a container with overflow-x:auto, replace fixed pixel widths with max-width:100% or responsive units, and let flex rows wrap. Check at 390px width that document.documentElement.scrollWidth equals window.innerWidth."
+    },
+    {
+      "severity": "medium",
+      "kind": "broken_images",
+      "where": "http://localhost:8100/about",
+      "detail": "http://localhost:8100/static/team.png",
+      "shot": "02-phone.png",
+      "viewports": [
+        "phone",
+        "desktop"
+      ],
+      "fix_prompt": "On http://localhost:8100/about, these images do not load: http://localhost:8100/static/team.png. Add the missing image files (or fix their paths) and give every <img> an alt text and explicit width/height."
+    },
+    {
+      "severity": "low",
+      "kind": "missing_description",
+      "where": "http://localhost:8100",
+      "detail": "No meta description (bad link previews)",
+      "shot": null,
+      "viewports": [],
+      "fix_prompt": "Add a <meta name=\"description\"> and Open Graph tags (og:title, og:description, og:image) to http://localhost:8100 so links shared on X, LinkedIn and Slack show a proper preview."
+    },
+    {
+      "severity": "low",
+      "kind": "missing_favicon",
+      "where": "http://localhost:8100",
+      "detail": "No favicon",
+      "shot": null,
+      "viewports": [],
+      "fix_prompt": "Add a favicon (<link rel=\"icon\" href=\"/favicon.ico\">) plus an apple-touch-icon to http://localhost:8100."
+    },
+    {
+      "severity": "low",
+      "kind": "security_headers",
+      "where": "http://localhost:8100",
+      "detail": "Missing: strict-transport-security, content-security-policy, x-content-type-options, x-frame-options, referrer-policy",
+      "shot": null,
+      "viewports": [],
+      "fix_prompt": "Add these HTTP response headers to every page: strict-transport-security, content-security-policy, x-content-type-options, x-frame-options, referrer-policy. Recommended values: Strict-Transport-Security: max-age=31536000; includeSubDomains, X-Content-Type-Options: nosniff, X-Frame-Options: DENY, Referrer-Policy: strict-origin-when-cross-origin, and a Content-Security-Policy that allows only the domains you use."
+    }
+  ]
+}

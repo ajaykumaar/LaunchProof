@@ -1,0 +1,13 @@
+# Thin web app for Brainbase mode: landing, ownership, $9 Launch Pass, report hosting.
+# Runs are handed to the Brainbase tester agent — no Chromium in this image.
+# See RUNBOOK.md step 8. For local-fallback (no Brainbase), use Dockerfile.api.playwright instead.
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY launchproof launchproof
+COPY api api
+COPY legal legal
+ENV LP_RUNS_DIR=/app/runs
+EXPOSE 8080
+CMD ["uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "*"]
