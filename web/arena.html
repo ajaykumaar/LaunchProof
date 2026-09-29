@@ -1,0 +1,1001 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LAUNCHPROOF ARENA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Orbitron:wght@600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --void: #070504;
+      --ash: #1a1210;
+      --panel: #160e0c;
+      --dim: #2a1c16;
+      --bone: #f3e6d4;
+      --muted: #a89078;
+      --blood: #c01818;
+      --ember: #ff4d1a;
+      --gold: #f0b429;
+      --steel: #6e5a4a;
+      --good: #3ddc97;
+      --warn: #f0b429;
+      --bad: #ff4d1a;
+      --crit: #7cf6ff;
+      --hp-color: var(--good);
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--void);
+      color: var(--bone);
+      font-family: "Rajdhani", system-ui, sans-serif;
+      overflow: hidden;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .num { font-family: "Orbitron", "Rajdhani", sans-serif; }
+
+    .stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse 90% 55% at 50% 115%, rgba(192,24,24,.45), transparent 55%),
+        radial-gradient(ellipse 50% 40% at 20% 30%, rgba(240,180,41,.08), transparent 50%),
+        radial-gradient(ellipse 50% 40% at 80% 25%, rgba(255,77,26,.1), transparent 50%),
+        linear-gradient(180deg, #120c0a 0%, #070504 45%, #140808 100%);
+    }
+    .stage.shake-big { animation: screenShakeBig .5s ease; }
+    .stage.shake-small { animation: screenShakeSmall .3s ease; }
+    @keyframes screenShakeBig {
+      10% { transform: translate(-9px,3px) rotate(-.4deg); }
+      20% { transform: translate(9px,-3px) rotate(.4deg); }
+      30% { transform: translate(-7px,2px); }
+      40% { transform: translate(7px,-2px); }
+      50% { transform: translate(-5px,3px); }
+      60% { transform: translate(5px,-3px); }
+      70% { transform: translate(-3px,1px); }
+      80% { transform: translate(3px,-1px); }
+      100% { transform: translate(0,0) rotate(0); }
+    }
+    @keyframes screenShakeSmall {
+      20% { transform: translate(-4px,1px); }
+      40% { transform: translate(4px,-1px); }
+      60% { transform: translate(-2px,1px); }
+      80% { transform: translate(2px,-1px); }
+      100% { transform: translate(0,0); }
+    }
+    .stage::before {
+      content: "";
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(243,230,212,.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(243,230,212,.03) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse at center, black 20%, transparent 75%);
+      pointer-events: none;
+      opacity: .5;
+      z-index: 1;
+    }
+    .dust {
+      position: absolute; inset: 0; pointer-events: none; z-index: 2;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.4'/%3E%3C/svg%3E");
+      opacity: .12; mix-blend-mode: overlay;
+    }
+    .scanlines {
+      position: absolute; inset: 0; z-index: 3; pointer-events: none;
+      background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,.07) 3px);
+      opacity: .55; mix-blend-mode: overlay;
+    }
+    .vignette {
+      position: absolute; inset: 0; z-index: 4; pointer-events: none;
+      background: radial-gradient(ellipse 75% 75% at 50% 46%, transparent 50%, rgba(0,0,0,.6) 100%);
+    }
+    .embers { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+    .ember {
+      position: absolute; bottom: -12px; border-radius: 50%; background: var(--ember);
+      box-shadow: 0 0 8px 2px rgba(255,77,26,.65);
+      opacity: 0; animation-name: emberRise; animation-timing-function: linear; animation-iteration-count: infinite;
+    }
+    @keyframes emberRise {
+      0% { opacity: 0; transform: translate(0,0); }
+      8% { opacity: .85; }
+      92% { opacity: .35; }
+      100% { opacity: 0; transform: translate(var(--drift, 20px), -112vh); }
+    }
+
+    /* Boot / loading */
+    .boot {
+      position: absolute; inset: 0; z-index: 80; background: var(--void);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      transition: opacity .5s ease, visibility .5s;
+    }
+    .boot.hide { opacity: 0; visibility: hidden; pointer-events: none; }
+    .boot .bt {
+      font-family: "Orbitron", sans-serif; font-weight: 700; font-size: 13px;
+      letter-spacing: .3em; text-transform: uppercase; color: var(--muted);
+    }
+    .boot .bt b { color: var(--gold); }
+    .boot .bar { width: min(320px, 70vw); height: 6px; background: #241512; border: 1px solid #3a2018; position: relative; overflow: hidden; }
+    .boot .bar i { position: absolute; inset: 0; background: linear-gradient(90deg, var(--blood), var(--ember), var(--gold)); width: 0%; animation: bootfill 1.1s ease forwards; display: block; }
+    @keyframes bootfill { to { width: 100%; } }
+
+    /* Top chrome */
+    .hud-top {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 18px 24px; pointer-events: none;
+    }
+    .brand-plate { display: flex; align-items: center; gap: 10px; }
+    .brand-plate svg { width: clamp(26px,3.2vw,36px); height: clamp(26px,3.2vw,36px); filter: drop-shadow(0 0 8px rgba(255,77,26,.6)); }
+    .brand {
+      font-family: "Bebas Neue", sans-serif;
+      font-size: clamp(24px, 3.6vw, 40px);
+      letter-spacing: .06em;
+      line-height: 1;
+      text-shadow: 0 0 24px rgba(192,24,24,.55);
+    }
+    .brand span { color: var(--ember); }
+    .brand small { display: block; font-family: "Rajdhani", sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .3em; color: var(--muted); margin-top: 2px; }
+
+    .run-meta { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .run-meta .host {
+      font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+    }
+    .run-meta b { display: block; color: var(--gold); font-size: 15px; margin-top: 1px; font-family: "Rajdhani", sans-serif; }
+    .threat {
+      font-family: "Orbitron", sans-serif; font-size: 10px; font-weight: 700; letter-spacing: .16em;
+      padding: 4px 10px; border: 1px solid var(--steel); border-radius: 2px; text-transform: uppercase;
+      background: rgba(0,0,0,.35);
+    }
+    .threat.sev-severe { color: var(--blood); border-color: var(--blood); }
+    .threat.sev-high { color: var(--ember); border-color: var(--ember); }
+    .threat.sev-moderate { color: var(--gold); border-color: var(--gold); }
+    .threat.sev-low { color: var(--good); border-color: var(--good); }
+
+    /* Combo counter */
+    .combo {
+      position: absolute; top: 16%; left: 50%; z-index: 22; pointer-events: none;
+      transform: translate(-50%,0) scale(.75); font-weight: 800; font-size: clamp(18px,2.6vw,30px);
+      color: var(--gold); text-shadow: 0 0 18px rgba(240,180,41,.65), 2px 2px 0 #000;
+      opacity: 0; transition: opacity .18s, transform .18s;
+      letter-spacing: .05em;
+    }
+    .combo.show { opacity: 1; transform: translate(-50%,0) scale(1); }
+
+    /* VS / fight */
+    .arena {
+      position: absolute; inset: 0;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: end;
+      padding: 0 4vw 12vh;
+      gap: 1vw;
+      z-index: 5;
+    }
+    .side { display: flex; flex-direction: column; align-items: center; gap: 10px; transition: transform .35s ease, filter .35s ease; }
+    .side.hit { animation: shake .35s ease; }
+    .side.team { align-items: flex-start; }
+    .side.boss { align-items: flex-end; }
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25% { transform: translateX(-10px); }
+      75% { transform: translateX(10px); }
+    }
+
+    .roster { display: flex; gap: 14px; align-items: flex-end; }
+    .unit { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .fighter-wrap { position: relative; width: clamp(70px, 11vw, 120px); }
+    .fighter {
+      width: 100%;
+      filter: drop-shadow(0 12px 0 rgba(0,0,0,.55));
+      transform-origin: 50% 100%;
+      animation: idleBob 2.6s ease-in-out infinite;
+    }
+    @keyframes idleBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+    .fighter.active { animation: lunge .45s ease; }
+    .fighter.knocked { animation: none; opacity: .35; filter: grayscale(1) drop-shadow(0 12px 0 rgba(0,0,0,.4)); }
+    .fighter.glow path, .fighter.glow rect, .fighter.glow polygon { fill: #1a0a08; stroke: var(--ember); stroke-width: 2.4; }
+    @keyframes lunge {
+      0% { transform: translateX(0) scale(1); }
+      40% { transform: translateX(30px) scale(1.06); }
+      100% { transform: translateX(0) scale(1); }
+    }
+    .side.boss .fighter.active { animation-name: lunge-left; }
+    @keyframes lunge-left {
+      0% { transform: translateX(0) scale(1); }
+      40% { transform: translateX(-30px) scale(1.06); }
+      100% { transform: translateX(0) scale(1); }
+    }
+    .badge-icon {
+      position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+      width: 20px; height: 20px; opacity: .95;
+    }
+    .unit-tag {
+      font-family: "Orbitron", sans-serif; font-size: 10px; font-weight: 700; letter-spacing: .12em;
+      padding: 3px 8px; border-radius: 2px; text-transform: uppercase;
+      display: flex; align-items: center; gap: 5px; background: rgba(0,0,0,.4); border: 1px solid var(--steel);
+    }
+    .unit-tag i.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 6px currentColor; }
+    .unit-tag.bench { color: var(--muted); opacity: .6; }
+    .unit-tag.bench i.dot { background: var(--steel); }
+    .unit-tag.live i.dot { background: var(--good); animation: pulseDot 1.2s ease-in-out infinite; }
+    @keyframes pulseDot { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+    .label {
+      font-family: "Bebas Neue", sans-serif;
+      font-size: clamp(16px, 2.4vw, 28px);
+      letter-spacing: .08em;
+      color: var(--bone);
+      text-shadow: 0 2px 0 #000;
+    }
+    .label small {
+      display: block; font-family: "Rajdhani", sans-serif;
+      font-size: 12px; font-weight: 600; letter-spacing: .18em;
+      color: var(--muted); margin-top: 2px;
+    }
+
+    .site-frame {
+      width: clamp(180px, 28vw, 340px);
+      aspect-ratio: 4/5;
+      border: 3px solid #2a1c16;
+      background: linear-gradient(160deg, #2a1812, #120c0a);
+      box-shadow: 0 0 0 1px rgba(240,180,41,.25), 0 20px 40px rgba(0,0,0,.6), inset 0 0 40px rgba(192,24,24,.15);
+      position: relative; overflow: hidden;
+      transform-origin: 50% 80%;
+      animation: bossSway 4.5s ease-in-out infinite;
+    }
+    @keyframes bossSway { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(.6deg); } }
+    .site-frame::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; }
+    .site-frame.crack-1::after {
+      opacity: 1;
+      background: linear-gradient(135deg, transparent 42%, rgba(243,230,212,.16) 43%, transparent 44%);
+    }
+    .site-frame.crack-2::after {
+      opacity: 1;
+      background:
+        linear-gradient(135deg, transparent 40%, rgba(243,230,212,.18) 41%, transparent 42%),
+        linear-gradient(38deg, transparent 55%, rgba(243,230,212,.14) 56%, transparent 57%),
+        linear-gradient(-20deg, transparent 70%, rgba(255,77,26,.12) 71%, transparent 72%);
+    }
+    .site-frame.crack-3 {
+      animation: bossSway 4.5s ease-in-out infinite, glitchJitter 2.4s steps(2) infinite;
+    }
+    .site-frame.crack-3::after {
+      opacity: 1;
+      background:
+        linear-gradient(135deg, transparent 38%, rgba(243,230,212,.22) 39%, transparent 41%),
+        linear-gradient(38deg, transparent 50%, rgba(243,230,212,.18) 51%, transparent 53%),
+        linear-gradient(-20deg, transparent 62%, rgba(255,77,26,.2) 63%, transparent 65%),
+        linear-gradient(70deg, transparent 78%, rgba(192,24,24,.22) 79%, transparent 81%);
+    }
+    @keyframes glitchJitter {
+      0%, 90%, 100% { transform: translate(0,0) rotate(.6deg); }
+      92% { transform: translate(-3px,1px) rotate(-1deg); }
+      94% { transform: translate(3px,-1px) rotate(1deg); }
+      96% { transform: translate(-2px,0) rotate(0deg); filter: hue-rotate(20deg); }
+    }
+    .site-chrome { height: 28px; background: #1c1210; border-bottom: 1px solid #3a2a22; display: flex; align-items: center; gap: 6px; padding: 0 10px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #5a4034; }
+    .site-body { padding: 14px; font-size: 11px; color: #c4a990; font-family: "Rajdhani", sans-serif; font-weight: 600; }
+    .fake-hero { height: 38%; margin-bottom: 10px; background: linear-gradient(135deg, #ffe566, #ff6b9a); border: 2px solid #111; box-shadow: 4px 4px 0 #111; }
+    .fake-btn { display: inline-block; margin: 4px 4px 0 0; padding: 6px 10px; background: #ff6b9a; color: #111; border: 2px solid #111; box-shadow: 3px 3px 0 #111; font-weight: 700; font-size: 10px; }
+
+    .hp-wrap { width: min(280px, 40vw); }
+    .hp-label { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; font-weight: 700; display: flex; justify-content: space-between; }
+    .hp-label .pct { font-family: "Orbitron", sans-serif; color: var(--bone); }
+    .hp { width: 100%; height: 16px; background: #2a1814; border: 2px solid #4a3028; position: relative; overflow: hidden; }
+    .hp > i {
+      display: block; height: 100%; width: 100%;
+      background: linear-gradient(90deg, color-mix(in srgb, var(--hp-color) 60%, var(--blood)), var(--hp-color));
+      transform-origin: left center;
+      transition: transform .5s cubic-bezier(.2,.8,.2,1), background .4s;
+    }
+    .hp.critical > i { animation: hpPulse .7s ease-in-out infinite; }
+    @keyframes hpPulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.5); } }
+    .hp::after {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(to right, transparent 0, transparent calc(10% - 2px), rgba(0,0,0,.55) calc(10% - 2px), rgba(0,0,0,.55) 10%);
+    }
+    .hp-ghost { position: absolute; inset: 0; background: rgba(255,255,255,.18); transform-origin: left center; transition: transform 1.1s ease .15s; z-index: -1; }
+
+    .vs {
+      align-self: center;
+      font-family: "Bebas Neue", sans-serif;
+      font-size: clamp(48px, 10vw, 96px);
+      color: var(--ember);
+      text-shadow: 0 0 30px rgba(255,77,26,.6), 4px 4px 0 #000;
+      opacity: 0; transform: scale(2);
+      transition: opacity .4s, transform .4s;
+      z-index: 8;
+    }
+    .vs.show { opacity: 1; transform: scale(1); }
+
+    /* Floating attack callouts */
+    .callout {
+      position: absolute; z-index: 15; pointer-events: none;
+      font-family: "Bebas Neue", sans-serif;
+      font-size: clamp(20px, 3.6vw, 38px);
+      letter-spacing: .04em;
+      color: var(--gold);
+      text-shadow: 0 0 18px rgba(240,180,41,.7), 3px 3px 0 #000;
+      opacity: 0; transform: translate(-50%, -20%) scale(.8);
+    }
+    .callout.show { animation: calloutPop 1.1s ease forwards; }
+    .callout.dmg { color: var(--ember); left: 72% !important; }
+    .callout.crit { color: var(--crit); text-shadow: 0 0 24px rgba(124,246,255,.85), 3px 3px 0 #000; font-size: clamp(26px,4.6vw,46px); }
+    @keyframes calloutPop {
+      0% { opacity: 0; transform: translate(-50%, 10%) scale(.6); }
+      20% { opacity: 1; transform: translate(-50%, -30%) scale(1.15); }
+      70% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -80%) scale(.9); }
+    }
+
+    .impact { position: absolute; left: 58%; top: 48%; z-index: 12; width: 120px; height: 120px; margin: -60px; border-radius: 50%; background: radial-gradient(circle, rgba(255,77,26,.8), transparent 65%); opacity: 0; pointer-events: none; }
+    .impact.crit { background: radial-gradient(circle, rgba(124,246,255,.85), transparent 65%); }
+    .impact.flash { animation: boom .45s ease-out; }
+    @keyframes boom { 0% { opacity: 1; transform: scale(.2); } 100% { opacity: 0; transform: scale(2.4); } }
+
+    .impact-counter { left: 30%; }
+
+    .particle-layer { position: absolute; inset: 0; z-index: 14; pointer-events: none; overflow: hidden; }
+    .particle { position: absolute; width: 6px; height: 6px; border-radius: 1px; transform: translate(-50%,-50%); animation: particleFly .68s cubic-bezier(.2,.7,.4,1) forwards; }
+    @keyframes particleFly {
+      0% { opacity: 1; transform: translate(-50%,-50%) rotate(0deg) scale(1); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(220deg) scale(.2); }
+    }
+
+    .flash-overlay { position: absolute; inset: 0; z-index: 30; background: #fff; opacity: 0; pointer-events: none; mix-blend-mode: overlay; }
+    .flash-overlay.pop { animation: flashPop .25s ease-out; }
+    @keyframes flashPop { 0% { opacity: .75; } 100% { opacity: 0; } }
+
+    /* Round banner */
+    .banner { position: absolute; left: 50%; top: 22%; z-index: 25; transform: translate(-50%, -50%); text-align: center; pointer-events: none; opacity: 0; }
+    .banner.show { animation: bannerIn 1.4s ease forwards; }
+    .banner .slash { position: absolute; left: -60vw; right: -60vw; top: 50%; height: 3px; background: linear-gradient(90deg, transparent, var(--ember), var(--gold), var(--ember), transparent); transform: translateY(-50%) scaleX(0); opacity: .8; }
+    .banner.show .slash { animation: slashWipe .5s ease forwards; }
+    @keyframes slashWipe { to { transform: translateY(-50%) scaleX(1); } }
+    .banner h2 { font-family: "Bebas Neue", sans-serif; font-size: clamp(36px, 8vw, 72px); letter-spacing: .12em; color: var(--bone); text-shadow: 0 0 40px rgba(192,24,24,.5), 4px 4px 0 #000; }
+    .banner p { font-weight: 700; letter-spacing: .28em; text-transform: uppercase; color: var(--gold); font-size: 14px; margin-top: 6px; }
+    @keyframes bannerIn {
+      0% { opacity: 0; transform: translate(-50%, -40%) scale(1.3); }
+      15% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      75% { opacity: 1; }
+      100% { opacity: 0; transform: translate(-50%, -60%); }
+    }
+
+    /* Final score overlay */
+    .scoreboard {
+      position: absolute; inset: 0; z-index: 40;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at center, rgba(7,5,4,.78), rgba(7,5,4,.96));
+      opacity: 0; pointer-events: none; transition: opacity .6s ease;
+      padding: 24px; text-align: center; overflow-y: auto;
+    }
+    .scoreboard.show { opacity: 1; pointer-events: auto; }
+    .scoreboard .ko {
+      font-family: "Bebas Neue", sans-serif; font-size: clamp(40px, 10vw, 92px); letter-spacing: .14em;
+      color: var(--ember); text-shadow: 0 0 50px rgba(255,77,26,.55), 6px 6px 0 #000;
+      animation: koPulse 1.2s ease infinite alternate;
+    }
+    @keyframes koPulse { from { transform: scale(1); filter: brightness(1); } to { transform: scale(1.04); filter: brightness(1.15); } }
+
+    .result-row { display: flex; align-items: center; gap: 22px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+    .rank-badge {
+      width: clamp(84px,12vw,120px); height: clamp(84px,12vw,120px);
+      display: flex; align-items: center; justify-content: center;
+      font-family: "Bebas Neue", sans-serif; font-size: clamp(42px,8vw,64px);
+      clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+      background: linear-gradient(160deg,#2a1812,#120c0a);
+      border: 3px solid var(--gold); color: var(--gold);
+      box-shadow: 0 0 30px rgba(240,180,41,.35);
+      flex-shrink: 0;
+    }
+    .rank-badge.grade-A { border-color: var(--good); color: var(--good); box-shadow: 0 0 34px rgba(61,220,151,.45); }
+    .rank-badge.grade-B { border-color: var(--crit); color: var(--crit); box-shadow: 0 0 34px rgba(124,246,255,.4); }
+    .rank-badge.grade-C { border-color: var(--gold); color: var(--gold); }
+    .rank-badge.grade-D { border-color: var(--ember); color: var(--ember); box-shadow: 0 0 34px rgba(255,77,26,.4); }
+    .rank-badge.grade-F { border-color: var(--blood); color: #ff8a6a; box-shadow: 0 0 34px rgba(192,24,24,.5); }
+    .score-num-wrap { display: flex; align-items: baseline; gap: 10px; }
+    .big-score { font-family: "Bebas Neue", sans-serif; font-size: clamp(64px, 15vw, 140px); line-height: .85; color: var(--bone); text-shadow: 0 8px 0 #000; }
+    .big-score small { font-size: clamp(20px,3vw,36px); color: #6B7280; font-weight: 600; font-family: "Rajdhani", sans-serif; }
+
+    .headline { margin-top: 16px; max-width: 640px; font-size: clamp(14px, 2vw, 18px); font-weight: 700; color: var(--muted); letter-spacing: .03em; }
+    .headline b { color: var(--bone); }
+
+    .gauges { width: min(560px, 92vw); margin-top: 22px; display: flex; flex-direction: column; gap: 10px; }
+    .gauge-row { display: flex; align-items: center; gap: 10px; }
+    .gauge-name { width: 84px; text-align: right; font-family: "Orbitron", sans-serif; font-size: 11px; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; flex-shrink: 0; }
+    .gauge-track { flex: 1; height: 12px; background: #201310; border: 1px solid #3a2018; position: relative; overflow: hidden; }
+    .gauge-fill { position: absolute; inset: 0; width: 0%; background: linear-gradient(90deg, var(--blood), var(--ember), var(--gold)); transition: width 1s cubic-bezier(.2,.8,.2,1); }
+    .gauge-fill.na { background: repeating-linear-gradient(45deg, #2a1c16, #2a1c16 6px, #201310 6px, #201310 12px); width: 100% !important; }
+    .gauge-val { width: 54px; text-align: left; font-family: "Orbitron", sans-serif; font-size: 12px; color: var(--bone); flex-shrink: 0; }
+
+    .pills { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 20px; max-width: 720px; }
+    .pill { border: 2px solid #3a2a22; background: #160e0c; padding: 8px 14px; font-weight: 700; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--bone); clip-path: polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%); }
+    .pill.gold { border-color: var(--gold); color: var(--gold); }
+    .pill.blood { border-color: var(--blood); color: #ff8a6a; }
+    .pill.good { border-color: var(--good); color: var(--good); }
+
+    .actions { margin-top: 26px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    .btn {
+      font-family: "Bebas Neue", sans-serif; font-size: 21px; letter-spacing: .1em;
+      padding: 12px 22px; border: 3px solid var(--bone);
+      background: var(--ember); color: #140808; cursor: pointer;
+      box-shadow: 5px 5px 0 #000; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
+      transition: transform .08s, box-shadow .08s;
+    }
+    .btn.ghost { background: transparent; color: var(--bone); }
+    .btn:hover { transform: translate(2px, 2px); box-shadow: 3px 3px 0 #000; }
+    .btn:active { transform: translate(4px,4px); box-shadow: 1px 1px 0 #000; }
+
+    .sb-footer { margin-top: 22px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--steel); }
+
+    .skip {
+      position: absolute; bottom: 18px; right: 22px; z-index: 50;
+      background: rgba(0,0,0,.35); border: 1px solid var(--steel);
+      color: var(--muted); font: 700 11px/1 "Orbitron", sans-serif;
+      letter-spacing: .16em; text-transform: uppercase;
+      padding: 9px 14px; cursor: pointer; display: flex; align-items: center; gap: 6px;
+      clip-path: polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+    }
+    .skip:hover { color: var(--bone); border-color: var(--bone); }
+
+    .floor { position: absolute; left: 0; right: 0; bottom: 0; height: 18vh; z-index: 2; background: linear-gradient(180deg, transparent, rgba(0,0,0,.75)); border-top: 2px solid rgba(240,180,41,.12); }
+
+    @media (max-width: 720px) {
+      .arena { padding-bottom: 16vh; }
+      .fighter-wrap { width: 62px; }
+      .site-frame { width: 140px; }
+      .hp-wrap { width: 120px; }
+      .roster { gap: 6px; }
+      .gauge-name { width: 62px; font-size: 10px; }
+      .result-row { gap: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage" id="stage">
+    <div class="embers" id="embers"></div>
+    <div class="dust"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+    <div class="floor"></div>
+
+    <header class="hud-top">
+      <div class="brand-plate">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 1l3 6 6 1-4.5 4.4L17.5 19 12 16l-5.5 3 1-6.6L3 8l6-1 3-6z" fill="var(--gold)" stroke="var(--blood)" stroke-width="1"/></svg>
+        <div class="brand">LAUNCH<span>PROOF</span> ARENA<small>LAUNCH-DAY BOSS BATTLE</small></div>
+      </div>
+      <div class="run-meta">
+        <div class="host">TARGET SITE<b id="targetHost">stackbolt</b></div>
+        <div class="threat" id="threatBadge">THREAT: —</div>
+      </div>
+    </header>
+
+    <div class="combo" id="combo">COMBO x0</div>
+    <div class="banner" id="banner"><div class="slash"></div><h2 id="bannerTitle">FIGHT</h2><p id="bannerSub">AGENT TEAM VS YOUR LAUNCH</p></div>
+    <div class="callout" id="callout"></div>
+    <div class="impact" id="impact"></div>
+    <div class="impact impact-counter" id="impactCounter"></div>
+    <div class="particle-layer" id="particles"></div>
+    <div class="flash-overlay" id="flashOverlay"></div>
+
+    <div class="arena">
+      <div class="side team" id="teamSide">
+        <div class="hp-wrap">
+          <div class="hp-label"><span>Agent team</span><span class="pct num" id="teamPct">100%</span></div>
+          <div class="hp" id="teamHpBar"><div class="hp-ghost" id="teamGhost"></div><i id="teamHp" style="transform:scaleX(1)"></i></div>
+        </div>
+        <div class="roster" id="fighters"><!-- units injected --></div>
+        <div class="label">AGENT SQUAD<small>THREE-AGENT STRIKE TEAM</small></div>
+      </div>
+
+      <div class="vs" id="vs">VS</div>
+
+      <div class="side boss" id="bossSide">
+        <div class="hp-wrap">
+          <div class="hp-label"><span style="order:2">Site integrity</span><span class="pct num" id="bossPct" style="order:1">100%</span></div>
+          <div class="hp" id="bossHpBar"><div class="hp-ghost" id="bossGhost"></div><i id="bossHp" style="transform:scaleX(1)"></i></div>
+        </div>
+        <div class="site-frame" id="siteFrame">
+          <div class="site-chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+          <div class="site-body">
+            <div class="fake-hero"></div>
+            <div style="font-size:13px;color:#f3e6d4;font-weight:700;margin-bottom:6px">Stackbolt</div>
+            <span class="fake-btn">Get started</span>
+            <span class="fake-btn" style="background:#5B8CFF">Pricing</span>
+          </div>
+        </div>
+        <div class="label" style="text-align:right">THE LAUNCH<small id="bossName">UNDER TEST</small></div>
+      </div>
+    </div>
+
+    <div class="scoreboard" id="scoreboard">
+      <div class="ko" id="koText">LAUNCH DAY VERDICT</div>
+      <div class="result-row">
+        <div class="rank-badge" id="rankBadge">-</div>
+        <div class="score-num-wrap"><div class="big-score" id="scoreNum">--</div><small>/100</small></div>
+      </div>
+      <p class="headline" id="headline"></p>
+      <div class="gauges" id="gauges"></div>
+      <div class="pills" id="pills"></div>
+      <div class="actions">
+        <button class="btn" id="replayBtn" type="button">↻ REPLAY FIGHT</button>
+        <a class="btn ghost" id="reportBtn" href="#">⧉ OPEN REPORT</a>
+      </div>
+      <div class="sb-footer">Launchproof Arena · run <span id="runIdFoot">-</span></div>
+    </div>
+
+    <button class="skip" id="skipBtn" type="button">SKIP ▶▶</button>
+
+    <div class="boot" id="boot">
+      <div class="bt">INITIALIZING ARENA · LOADING <b id="bootTarget">TARGET</b></div>
+      <div class="bar"><i></i></div>
+    </div>
+  </div>
+
+  <script>
+    const DEFAULT = {
+      score: { total: 29, grade: "F", parts: { ui: { got: 10, of: 35 } }, skipped: ["payments", "load"] },
+      appeal_score: 72,
+      headline: ["Signup works", "7 UI issues", "Visual appeal 72/100", "Style: Neo-brutalism"],
+      smart_ui: { status: "done", style: "Neo-brutalism", scenarios_run: ["rage_cta_before_idle"], views_used: 2, budget: { max_chaos_scenarios: 1, max_vision_views: 2 } },
+      signup: { success: true, reached_form: true },
+      issues: [
+        { severity: "high", kind: "console_errors", where: "/about", detail: "analytics.track is not a function" },
+        { severity: "high", kind: "failed_requests", where: "/about", detail: "404 missing-logo.png" },
+        { severity: "high", kind: "visual_broken_layout", where: "/pricing", detail: "8-column table breaks on phone" },
+        { severity: "medium", kind: "horizontal_overflow", where: "/pricing", detail: "Page scrolls sideways" },
+        { severity: "medium", kind: "broken_images", where: "/about", detail: "missing-logo.png" },
+        { severity: "medium", kind: "visual_cta", where: "/pricing", detail: "No dominant CTA emphasis" },
+        { severity: "low", kind: "security_headers", where: "/", detail: "Missing HSTS, CSP, X-Frame-Options" }
+      ],
+      target: "owner-what-successfully-manuals.trycloudflare.com",
+      run_id: "stackbolt-demo1",
+    };
+
+    const ROSTER = [
+      { key: "tester", name: "Tester", color: "#f0b429" },
+      { key: "chaos", name: "Chaos", color: "#ff4d1a" },
+      { key: "critic", name: "Critic", color: "#f3e6d4" },
+    ];
+    const BADGE_ICON = [
+      '<svg viewBox="0 0 20 20"><path d="M10 1l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V4z" fill="none" stroke="#f0b429" stroke-width="1.6"/></svg>',
+      '<svg viewBox="0 0 20 20"><path d="M11 1L4 11h5l-1 8 8-11h-5l1-7z" fill="#ff4d1a"/></svg>',
+      '<svg viewBox="0 0 20 20"><circle cx="9" cy="9" r="6" fill="none" stroke="#f3e6d4" stroke-width="1.6"/><line x1="13.5" y1="13.5" x2="18" y2="18" stroke="#f3e6d4" stroke-width="1.6"/></svg>',
+    ];
+
+    function fighterSvg(accent) {
+      return `<svg class="fighter" viewBox="0 0 80 140" aria-hidden="true">
+        <ellipse cx="40" cy="132" rx="22" ry="5" fill="#000" opacity=".45"/>
+        <path fill="#0d0806" stroke="${accent}" stroke-width="1.5"
+          d="M40 18c8 0 14 7 14 16 0 6-3 11-7 14l6 8c3 4 5 10 4 16l-3 28c-1 6-4 10-9 12l-5 20h-10l-5-20c-5-2-8-6-9-12l-3-28c-1-6 1-12 4-16l6-8c-4-3-7-8-7-14 0-9 6-16 14-16z"/>
+        <path fill="#0d0806" stroke="${accent}" stroke-width="1.2"
+          d="M26 52l-14 10-4 16 12-4 8-14zm28 0l14 10 4 16-12-4-8-14z"/>
+      </svg>`;
+    }
+
+    const fightersEl = document.getElementById("fighters");
+    fightersEl.innerHTML = ROSTER.map((f, i) => `
+      <div class="unit" data-unit="${i}">
+        <div class="fighter-wrap">
+          <div class="badge-icon">${BADGE_ICON[i]}</div>
+          ${fighterSvg(f.color)}
+        </div>
+        <div class="unit-tag live" data-tag="${i}"><i class="dot"></i>${f.name.toUpperCase()}</div>
+      </div>`).join("");
+    const fighterEls = [...fightersEl.querySelectorAll(".fighter")];
+    const tagEls = [...fightersEl.querySelectorAll(".unit-tag")];
+
+    let data = { ...DEFAULT };
+    let timers = [];
+    let skipped = false;
+    let comboCount = 0;
+
+    function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+    function later(ms, fn) { const t = setTimeout(fn, ms); timers.push(t); return t; }
+
+    function spawnEmbers() {
+      const layer = document.getElementById("embers");
+      layer.innerHTML = "";
+      for (let i = 0; i < 20; i++) {
+        const e = document.createElement("span");
+        e.className = "ember";
+        const size = 2 + Math.random() * 3;
+        e.style.width = size + "px"; e.style.height = size + "px";
+        e.style.left = (Math.random() * 100) + "%";
+        e.style.setProperty("--drift", (Math.random() * 80 - 40) + "px");
+        const dur = 7 + Math.random() * 9;
+        e.style.animationDuration = dur + "s";
+        e.style.animationDelay = (-Math.random() * dur) + "s";
+        layer.appendChild(e);
+      }
+    }
+
+    function particleBurst(anchorId, color, count) {
+      const stage = document.getElementById("stage");
+      const anchor = document.getElementById(anchorId);
+      const sr = stage.getBoundingClientRect();
+      const ar = anchor.getBoundingClientRect();
+      const x = ar.left - sr.left + ar.width / 2;
+      const y = ar.top - sr.top + ar.height / 2;
+      const layer = document.getElementById("particles");
+      for (let i = 0; i < count; i++) {
+        const p = document.createElement("span");
+        p.className = "particle";
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 40 + Math.random() * 100;
+        p.style.setProperty("--dx", (Math.cos(angle) * dist) + "px");
+        p.style.setProperty("--dy", (Math.sin(angle) * dist - 20) + "px");
+        p.style.left = x + "px"; p.style.top = y + "px";
+        p.style.background = color;
+        layer.appendChild(p);
+        later(700, () => p.remove());
+      }
+    }
+
+    function screenFlash(crit) {
+      const f = document.getElementById("flashOverlay");
+      f.style.background = crit ? "#7cf6ff" : "#fff";
+      f.classList.remove("pop"); void f.offsetWidth; f.classList.add("pop");
+    }
+
+    function shakeStage(big) {
+      const s = document.getElementById("stage");
+      s.classList.remove("shake-big", "shake-small");
+      void s.offsetWidth;
+      s.classList.add(big ? "shake-big" : "shake-small");
+    }
+
+    async function loadData() {
+      const params = new URLSearchParams(location.search);
+      const run = params.get("run") || "stackbolt-demo1";
+      try {
+        const r = await fetch(`/arena/data/${run}`);
+        if (r.ok) {
+          const j = await r.json();
+          data = {
+            ...DEFAULT, ...j,
+            score: j.score || DEFAULT.score,
+            issues: j.issues && j.issues.length ? j.issues : DEFAULT.issues,
+            run_id: run,
+            target: j.target || (j.issues?.[0]?.where || "").split(" ")[0]?.replace(/^https?:\/\//, "") || DEFAULT.target,
+          };
+        }
+      } catch (_) { /* file:// or offline -> defaults */ }
+      const host = (data.target || "target").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].slice(0, 42);
+      document.getElementById("targetHost").textContent = host;
+      document.getElementById("bootTarget").textContent = host.toUpperCase();
+      document.getElementById("reportBtn").href = `/r/${data.run_id || "stackbolt-demo1"}/report.html`;
+      document.getElementById("reportBtn").setAttribute("target", "_blank");
+      document.getElementById("reportBtn").setAttribute("rel", "noopener");
+      document.getElementById("runIdFoot").textContent = data.run_id || "-";
+      const total = data.score?.total ?? 0;
+      const tb = document.getElementById("threatBadge");
+      const level = total >= 90 ? ["MINIMAL", "sev-low"] : total >= 75 ? ["LOW", "sev-low"] : total >= 60 ? ["MODERATE", "sev-moderate"] : total >= 40 ? ["HIGH", "sev-high"] : ["SEVERE", "sev-severe"];
+      tb.textContent = "THREAT: " + level[0];
+      tb.className = "threat " + level[1];
+      document.getElementById("bossName").textContent = "THREAT: " + level[0];
+    }
+
+    function setHp(barId, ghostId, pct, wrapCriticalId) {
+      const clamped = Math.max(0, Math.min(1, pct));
+      document.getElementById(barId).style.transform = `scaleX(${clamped})`;
+      const ghost = document.getElementById(ghostId);
+      later(80, () => { ghost.style.transform = `scaleX(${clamped})`; });
+      const bar = document.getElementById(barId).parentElement;
+      bar.classList.toggle("critical", clamped <= 0.25 && clamped > 0);
+      const root = document.documentElement;
+      const color = clamped > 0.5 ? "var(--good)" : clamped > 0.25 ? "var(--warn)" : "var(--bad)";
+      if (wrapCriticalId === "boss") {
+        document.getElementById("bossHp").style.setProperty("--hp-color", color);
+        document.getElementById("bossHp").style.background =
+          `linear-gradient(90deg, var(--blood), ${color})`;
+        document.getElementById("bossPct").textContent = Math.round(clamped * 100) + "%";
+        const frame = document.getElementById("siteFrame");
+        frame.classList.remove("crack-1", "crack-2", "crack-3");
+        if (clamped <= 0.25) frame.classList.add("crack-3");
+        else if (clamped <= 0.5) frame.classList.add("crack-2");
+        else if (clamped <= 0.75) frame.classList.add("crack-1");
+      } else if (wrapCriticalId === "team") {
+        document.getElementById("teamHp").style.background = `linear-gradient(90deg, var(--blood), ${color})`;
+        document.getElementById("teamPct").textContent = Math.round(clamped * 100) + "%";
+      }
+    }
+
+    function showBanner(title, sub) {
+      const b = document.getElementById("banner");
+      document.getElementById("bannerTitle").textContent = title;
+      document.getElementById("bannerSub").textContent = sub;
+      b.classList.remove("show"); void b.offsetWidth; b.classList.add("show");
+    }
+
+    function callout(text, opts = {}) {
+      const c = document.getElementById("callout");
+      c.textContent = text;
+      c.className = "callout" + (opts.dmg ? " dmg" : "") + (opts.crit ? " crit" : "");
+      c.style.left = opts.dmg ? "68%" : "32%";
+      c.style.top = opts.dmg ? "42%" : "38%";
+      void c.offsetWidth;
+      c.classList.add("show");
+    }
+
+    function showCombo() {
+      comboCount++;
+      const el = document.getElementById("combo");
+      el.textContent = `COMBO x${comboCount}`;
+      el.classList.remove("show"); void el.offsetWidth; el.classList.add("show");
+      later(650, () => el.classList.remove("show"));
+    }
+    function resetCombo() {
+      comboCount = 0;
+      const el = document.getElementById("combo");
+      el.classList.remove("show");
+      el.textContent = "COMBO x0";
+    }
+
+    function impact(crit, anchor = "impact") {
+      const i = document.getElementById(anchor);
+      i.classList.toggle("crit", !!crit);
+      i.classList.remove("flash"); void i.offsetWidth; i.classList.add("flash");
+    }
+
+    function hitBoss(crit) {
+      document.getElementById("bossSide").classList.remove("hit");
+      void document.getElementById("bossSide").offsetWidth;
+      document.getElementById("bossSide").classList.add("hit");
+      impact(crit, "impact");
+      particleBurst("siteFrame", crit ? "var(--crit)" : "var(--ember)", crit ? 16 : 9);
+      shakeStage(crit);
+      if (crit) screenFlash(true);
+    }
+
+    function hitTeam() {
+      document.getElementById("teamSide").classList.remove("hit");
+      void document.getElementById("teamSide").offsetWidth;
+      document.getElementById("teamSide").classList.add("hit");
+      impact(false, "impactCounter");
+      particleBurst("fighters", "var(--blood)", 12);
+      shakeStage(true);
+      screenFlash(false);
+    }
+
+    function activateFighter(idx, knocked) {
+      fighterEls.forEach((el, i) => {
+        el.classList.toggle("active", i === idx && !knocked);
+        el.classList.toggle("glow", i === idx);
+      });
+    }
+    function benchTag(idx) {
+      const t = tagEls[idx];
+      t.classList.remove("live"); t.classList.add("bench");
+      t.innerHTML = '<i class="dot"></i>' + ROSTER[idx].name.toUpperCase() + " · BENCH";
+    }
+
+    /* ---- Build a fight from the real report data ---- */
+    const SEV_WEIGHT = { critical: 4, high: 3, medium: 2, low: 1 };
+    function fighterForKind(kind) {
+      if ((kind || "").startsWith("chaos_")) return 1;
+      if ((kind || "").startsWith("visual_")) return 2;
+      return 0;
+    }
+    function labelForKind(kind) {
+      return (kind || "issue").replaceAll("_", " ").toUpperCase().slice(0, 22);
+    }
+
+    function buildBeats() {
+      const issues = (data.issues || []).slice();
+      const MAX = 6;
+      let used = issues.slice(0, MAX);
+      const rest = issues.slice(MAX);
+      if (rest.length) {
+        used = used.concat([{ severity: rest[0]?.severity || "low", kind: "and_more", detail: `${rest.length} more issue(s)`, __agg: rest.length }]);
+      }
+      const total = data.score?.total ?? 29;
+      const finalFrac = Math.max(0.05, total / 100);
+      const bypass = issues.find(i => i.kind === "paywall_bypass");
+
+      const weights = used.map(i => SEV_WEIGHT[i.severity] || 1);
+      const wsum = weights.reduce((a, b) => a + b, 0) || 1;
+      const dmgBudget = 0.82 * (1 - finalFrac);
+
+      const beats = [];
+      // Round 0: signup + tester-owned issues
+      const signupOk = !!data.signup?.success;
+      beats.push({
+        round: 0, fighter: 0, kind: "signup",
+        label: signupOk ? "SIGNUP LOCK" : "SIGNUP PROBE",
+        dmg: signupOk ? 0 : 0.05, crit: false,
+        resultText: signupOk ? "CLEAN" : "BLOCKED",
+      });
+      used.forEach((iss, n) => {
+        const fighter = iss.kind === "and_more" ? 0 : fighterForKind(iss.kind);
+        const dmg = (weights[n] / wsum) * dmgBudget;
+        beats.push({
+          round: fighter === 1 ? 1 : fighter === 2 ? 2 : 0,
+          fighter, kind: iss.kind,
+          label: iss.kind === "and_more" ? `+${iss.__agg} MORE HITS` : labelForKind(iss.kind),
+          dmg, crit: iss.severity === "critical",
+          resultText: `-${Math.round(dmg * 100)}`,
+        });
+      });
+      // style flavor beat for Critic
+      if (data.appeal_score != null && (data.smart_ui?.views_used ?? 1) > 0) {
+        const styleDmg = Math.max(0.02, (100 - data.appeal_score) / 100 * 0.06);
+        beats.push({
+          round: 2, fighter: 2, kind: "style",
+          label: (data.smart_ui?.style || "STYLE READ").toUpperCase().slice(0, 20),
+          dmg: styleDmg, crit: false,
+          resultText: `APPEAL ${data.appeal_score}`,
+        });
+      }
+      // dramatic counter-attack if paywall bypass found
+      if (bypass) {
+        beats.push({ round: 3, fighter: -1, kind: "counter", label: "PAYWALL COUNTER", dmg: 0, crit: true, resultText: "TEAM HIT", teamDmg: 0.3 });
+      }
+      beats.push({ round: 4, fighter: -2, kind: "finish", label: "JUDGEMENT", dmg: 0, crit: false, resultText: `HP ${total}`, snapTo: finalFrac });
+
+      // bench fighters with zero involvement (e.g. chaos disabled)
+      const chaosBudget = data.smart_ui?.budget?.max_chaos_scenarios;
+      const visionBudget = data.smart_ui?.budget?.max_vision_views ?? data.smart_ui?.views_used;
+      const usedFighters = new Set(beats.map(b => b.fighter));
+      if ((chaosBudget === 0 || (data.smart_ui?.status === "skipped")) && !usedFighters.has(1)) benchTag(1);
+      if ((visionBudget === 0 || (data.smart_ui?.status === "skipped")) && !usedFighters.has(2)) benchTag(2);
+
+      return beats;
+    }
+
+    const ROUND_META = {
+      0: ["ROUND 1", "HEURISTIC UI + SIGNUP"],
+      1: ["ROUND 2", "CHAOS PROBES"],
+      2: ["FINAL ROUND", "CRITIC EYES"],
+    };
+
+    function finishScoreboard() {
+      const sc = data.score || {};
+      const total = sc.total ?? 0;
+      const grade = sc.grade ?? "-";
+      animateCount(document.getElementById("scoreNum"), total, 900);
+      const rb = document.getElementById("rankBadge");
+      rb.textContent = grade;
+      rb.className = "rank-badge grade-" + grade;
+      const bits = (data.headline || []).map(h => `<b>${h}</b>`).join(" · ");
+      document.getElementById("headline").innerHTML = bits || "Launch day verdict ready.";
+
+      const gaugesEl = document.getElementById("gauges");
+      const names = { ui: "UI", payments: "PAY", load: "LOAD" };
+      const order = ["ui", "payments", "load"];
+      gaugesEl.innerHTML = order.map(k => {
+        const part = sc.parts?.[k];
+        const na = !part;
+        const pct = part ? Math.round((part.got / part.of) * 100) : 0;
+        const val = part ? `${part.got}/${part.of}` : "N/A";
+        return `<div class="gauge-row"><div class="gauge-name">${names[k]}</div>
+          <div class="gauge-track"><div class="gauge-fill${na ? " na" : ""}" data-pct="${pct}" style="width:0%"></div></div>
+          <div class="gauge-val">${val}</div></div>`;
+      }).join("");
+      later(120, () => {
+        gaugesEl.querySelectorAll(".gauge-fill:not(.na)").forEach((el, i) => {
+          later(i * 140, () => { el.style.width = el.dataset.pct + "%"; });
+        });
+      });
+
+      const pills = document.getElementById("pills");
+      const items = [];
+      if (data.signup?.success) items.push(["good", "Signup OK"]);
+      if (data.appeal_score != null) items.push(["gold", `Appeal ${data.appeal_score}`]);
+      if (data.smart_ui?.style) items.push(["gold", data.smart_ui.style]);
+      (data.issues || []).slice(0, 4).forEach(i => items.push(["blood", (i.kind || "issue").replaceAll("_", " ")]));
+      pills.innerHTML = items.map(([k, t]) => `<span class="pill ${k}">${t}</span>`).join("");
+
+      const ko = document.getElementById("koText");
+      ko.textContent = total >= 75 ? "SITE STANDS" : total >= 50 ? "HEAVY DAMAGE" : "LAUNCH DAY KO";
+      document.getElementById("scoreboard").classList.add("show");
+      document.getElementById("skipBtn").style.display = "none";
+      setHp("bossHp", "bossGhost", Math.max(0.05, total / 100), "boss");
+    }
+
+    function animateCount(el, target, dur) {
+      const t0 = performance.now();
+      function tick(now) {
+        const p = Math.min(1, (now - t0) / dur);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(eased * target);
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+
+    function runFight() {
+      skipped = false;
+      clearTimers();
+      resetCombo();
+      document.getElementById("scoreboard").classList.remove("show");
+      document.getElementById("skipBtn").style.display = "";
+      document.getElementById("siteFrame").classList.remove("crack-1", "crack-2", "crack-3");
+      setHp("teamHp", "teamGhost", 1, "team");
+      setHp("bossHp", "bossGhost", 1, "boss");
+      document.getElementById("vs").classList.remove("show");
+      fighterEls.forEach(el => el.classList.remove("active", "glow", "knocked"));
+
+      const beats = buildBeats();
+      let boss = 1, team = 1;
+      const sequence = [];
+      let currentRound = -1;
+
+      sequence.push(() => { document.getElementById("vs").classList.add("show"); });
+
+      beats.forEach(b => {
+        if (b.kind === "finish") {
+          sequence.push(() => showBanner("JUDGEMENT", "SCORECARD INCOMING"));
+          sequence.push(() => {
+            boss = b.snapTo;
+            setHp("bossHp", "bossGhost", boss, "boss");
+            callout(b.resultText, { dmg: true });
+          });
+          sequence.push(() => finishScoreboard());
+          return;
+        }
+        if (b.kind === "counter") {
+          sequence.push(() => showBanner("COUNTER", "THE SITE STRIKES BACK"));
+          sequence.push(() => {
+            callout(b.label, { crit: true });
+            later(220, () => {
+              team = Math.max(0.15, team - b.teamDmg);
+              setHp("teamHp", "teamGhost", team, "team");
+              hitTeam();
+              callout("PAID PLAN UNLOCKED FREE", { dmg: true, crit: true });
+            });
+          });
+          return;
+        }
+        if (b.round !== currentRound && ROUND_META[b.round]) {
+          currentRound = b.round;
+          const [t, s] = ROUND_META[b.round];
+          sequence.push(() => showBanner(t, s));
+        } else {
+          currentRound = b.round;
+        }
+        sequence.push(() => {
+          activateFighter(b.fighter);
+          callout(b.label);
+          later(200, () => {
+            if (b.dmg > 0) {
+              boss = Math.max(0.04, boss - b.dmg);
+              setHp("bossHp", "bossGhost", boss, "boss");
+              hitBoss(b.crit);
+              showCombo();
+              callout(b.resultText, { dmg: true, crit: b.crit });
+              if (boss <= 0.15) fighterEls.forEach((el, i) => { if (i !== b.fighter) el.classList.add("knocked"); });
+            } else {
+              callout(b.resultText || "CLEAN", { dmg: true });
+            }
+          });
+        });
+      });
+
+      const gaps = sequence.map((_, i) => (i === 0 ? 400 : 1450));
+      let t = 0;
+      sequence.forEach((fn, i) => {
+        t += gaps[i] || 1300;
+        later(t, () => { if (!skipped) fn(); });
+      });
+    }
+
+    document.getElementById("skipBtn").onclick = () => { skipped = true; clearTimers(); finishScoreboard(); };
+    document.getElementById("replayBtn").onclick = () => runFight();
+
+    spawnEmbers();
+    loadData().then(() => {
+      later(1250, () => {
+        document.getElementById("boot").classList.add("hide");
+        runFight();
+      });
+    });
+  </script>
+</body>
+</html>

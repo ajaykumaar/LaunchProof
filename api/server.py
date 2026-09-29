@@ -31,11 +31,16 @@ from launchproof import ownership
 from launchproof.__main__ import LOG_SINK, run, run_args
 
 RUNS_DIR = Path(os.getenv("LP_RUNS_DIR", "runs")).resolve()
+WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 app = FastAPI(title="Launchproof")
 RUNS: dict[str, dict] = {}          # run_id -> {"status", "log", "url", "result"}
 PASSES: dict[str, str] = {}         # host -> checkout session id (paid)
 MAX_CONCURRENT = int(os.getenv("LP_MAX_CONCURRENT", "2"))
 _sem = asyncio.Semaphore(MAX_CONCURRENT)
+
+
+def _safe_run_id(run_id: str) -> bool:
+    return bool(run_id) and all(c.isalnum() or c in "-_" for c in run_id) and ".." not in run_id
 
 CSS = """<style>:root{--bg:#F7F7F8;--card:#fff;--ink:#111318;--muted:#5E6470;--line:#E6E7EA;--acc:#4F46E5}
 @media (prefers-color-scheme:dark){:root{--bg:#0B0D12;--card:#141821;--ink:#F4F5F7;--muted:#9AA3AF;--line:#262B36;--acc:#818CF8}}
@@ -63,7 +68,37 @@ then sends a crowd at it from several regions. You get a score, what broke, and 
 <form class="card" method="post" action="/verify"><label for="u">Your site</label>
 <input id="u" type="url" name="url" placeholder="https://yourapp.com" required>
 <button type="submit">Test my site</button>
-<p class="small muted">Free: UI check on any site. Payment and load tests need proof you own the site, and a $9 Launch Pass.</p></form>""")
+<p class="small muted">Free: UI check on any site. Payment and load tests need proof you own the site, and a $9 Launch Pass.</p>
+<p class="small muted" style="margin-top:12px"><a href="/arena?run=stackbolt-demo1">Watch the Arena fight →</a></p></form>""")
+
+
+@app.get("/arena")
+def arena_page():
+    f = WEB_DIR / "arena.html"
+    if not f.is_file():
+        raise HTTPException(404, "arena UI missing")
+    return FileResponse(f, media_type="text/html")
+
+
+@app.get("/arena/data/{run_id}")
+def arena_data(run_id: str):
+    if not _safe_run_id(run_id):
+        raise HTTPException(404)
+    f = RUNS_DIR / run_id / "report.json"
+    if not f.is_file():
+        raise HTTPException(404, "report not found")
+    import json
+    data = json.loads(f.read_text(encoding="utf-8"))
+    run_meta = RUNS_DIR / run_id / "run.json"
+    if run_meta.is_file():
+        try:
+            meta = json.loads(run_meta.read_text(encoding="utf-8"))
+            data["target"] = meta.get("url") or data.get("target")
+        except Exception:
+            pass
+    data["run_id"] = run_id
+    data["report_url"] = f"/r/{run_id}/report.html"
+    return data
 
 
 @app.post("/verify", response_class=HTMLResponse)
@@ -102,12 +137,17 @@ async def _do_run_brainbase(run_id: str, url: str, token: str | None, full: bool
     rec["smart_ui_budget"] = budget
     try:
         tid = await asyncio.to_thread(bb.start, bb.task_message(url, run_id, token, full, budget=budget))
+        rec["thread_id"] = tid
         rec["log"].append(f"Brainbase agent started (thread {tid})")
         if budget:
             rec["log"].append(f"smart_ui budget: {budget}")
         st = await asyncio.to_thread(bb.wait, tid, 1500, lambda m: rec["log"].append(m[:1500]))
-        for name in ("report.html", "share-card.png", "report.json"):
-            await asyncio.to_thread(bb.download, tid, f"launchproof/runs/{run_id}/{name}", RUNS_DIR / run_id / name)
+        # Pull report + every screenshot so /r/<id>/report.html images resolve.
+        fetched = await asyncio.to_thread(bb.download_run, tid, run_id, RUNS_DIR / run_id)
+        rec["log"].append(
+            f"fetched {len(fetched.get('ok') or [])} run files"
+            + (f"; missing {fetched.get('missing')}" if fetched.get("missing") else "")
+        )
         report_json = RUNS_DIR / run_id / "report.json"
         if report_json.is_file():
             try:
@@ -175,7 +215,9 @@ def run_page(run_id: str):
 <script>
 async function tick(){{const r=await fetch('/api/runs/{run_id}');const d=await r.json();
 document.getElementById('s').textContent=d.status;document.getElementById('log').textContent=d.log.join('\\n');
-if(d.status==='done'){{document.getElementById('done').innerHTML='<a class="btn" href="/r/{run_id}/report.html">Open the report</a>';return}}
+if(d.status==='done'){{document.getElementById('done').innerHTML=
+  '<a class="btn" href="/arena?run={run_id}">Watch Arena fight</a> '
+  +'<a class="btn" href="/r/{run_id}/report.html" style="margin-left:8px">Open the report</a>';return}}
 if(d.status==='failed')return;setTimeout(tick,1500)}}tick();</script>""")
 
 
@@ -186,12 +228,13 @@ def run_status(run_id: str):
         raise rec
     res = rec["result"] or {}
     return {"status": rec["status"], "log": rec["log"][-200:], "score": (res.get("score") or {}).get("total"),
-            "headline": res.get("headline")}
+            "headline": res.get("headline"), "thread_id": rec.get("thread_id"),
+            "arena": f"/arena?run={run_id}", "report": f"/r/{run_id}/report.html"}
 
 
 @app.get("/r/{run_id}/{name}")
 def report_file(run_id: str, name: str):
-    if not run_id.isalnum() or "/" in name or ".." in name:
+    if not _safe_run_id(run_id) or "/" in name or ".." in name or not name.replace(".", "").replace("-", "").replace("_", "").isalnum():
         raise HTTPException(404)
     f = RUNS_DIR / run_id / name
     if not f.is_file():
