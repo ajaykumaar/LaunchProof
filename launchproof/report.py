@@ -37,7 +37,13 @@ def load_issues(load: dict | None) -> list[dict]:
     if not load:
         return []
     out = []
+    for issue in load.get("issues") or []:
+        if isinstance(issue, dict) and issue.get("kind"):
+            out.append(issue)
     for region, r in (load.get("regions") or {}).items():
+        for issue in r.get("issues") or []:
+            if isinstance(issue, dict) and issue.get("kind"):
+                out.append(issue)
         bp = r.get("break_point_users")
         if not bp:
             continue
@@ -184,6 +190,22 @@ TEMPLATES = {
                           "contemporary direction, or lean into a deliberate retro choice and make that commitment obvious.",
     "visual_style_mismatch": "On {where}, details fight the apparent style: {detail}. Align borders, shadows, type, and color with the "
                              "named design language, or rename/reframe the style and restyle consistently.",
+    # Launch-day concurrency
+    "thundering_herd": "A synchronized burst against {where} failed while a ramped load held: {detail}. Add queueing, shedding, "
+                       "or warm capacity for launch spikes; do not only test gradual ramps.",
+    "race_condition_exploit": "Concurrent identical requests to {where} produced multiple success outcomes: {detail}. "
+                              "Serialize claims with a transaction/unique constraint so exactly one winner is recorded.",
+    "race_inconclusive": "Race probe on {where} returned ambiguous 2xx bodies: {detail}. Add clear created vs conflict responses.",
+    "signup_storm_errors": "Concurrent signups against {where} errored: {detail}. Harden the create-account path under launch traffic.",
+    "signup_rate_limit": "Signup storm hit rate limits on {where}: {detail}. Confirm limits are intentional and return clear UX.",
+    "signup_duplicate_collision": "Two concurrent signups with the same email both succeeded on {where}: {detail}. "
+                                  "Enforce uniqueness at the database layer, not only in the UI.",
+    "persona_skimmer_fail": "Skimmer persona failed on {where}: {detail}. Ensure primary nav and pricing links work on first visit.",
+    "persona_impatient_fail": "Impatient persona failed on {where}: {detail}. Guard early clicks and history navigation in the hero funnel.",
+    "persona_mobile_fail": "Mobile persona hit a problem on {where}: {detail}. Fix phone layout / overflow for first paint.",
+    "visual_blank": "On {where}: {detail}. Ensure the page renders meaningful content above the fold.",
+    "launch_cross_link": "UI and backend both show a double-submit / race story on {where}: {detail}. Fix client debounce and "
+                         "server idempotency together so launch-day spam cannot create duplicates.",
 }
 
 
@@ -226,13 +248,18 @@ def claude_fix_prompts(issues: list[dict]) -> list[str] | None:
 
 def headline(sc: dict, ui: dict | None, pay: dict | None, load: dict | None, signup: dict | None = None) -> list[str]:
     bits = []
+    kinds = {i.get("kind") for i in ((ui or {}).get("issues") or [])}
     if load:
-        regions = load.get("regions") or {}
-        n = len(regions)
-        survived = min((r.get("survived_users", 0) for r in regions.values()), default=0)
-        broke = [r["break_point_users"] for r in regions.values() if r.get("break_point_users")]
-        bits.append(f"Survived {survived} users{' per region' if n > 1 else ''}" + (f" from {n} regions" if n > 1 else "")
-                    + (f", broke at {min(broke)}" if broke else ""))
+        for i in load.get("issues") or []:
+            kinds.add(i.get("kind"))
+        for r in (load.get("regions") or {}).values():
+            for i in (r.get("issues") or []):
+                kinds.add(i.get("kind"))
+    # Launch-day integrity first
+    if "race_condition_exploit" in kinds or "signup_duplicate_collision" in kinds:
+        bits.append("Race / duplicate claim under concurrency")
+    if "thundering_herd" in kinds:
+        bits.append("Thundering herd: burst fails, ramp holds")
     if pay:
         by = {c["case"]: c for c in pay.get("cases", [])}
         if by.get("bypass", {}).get("unlocked"):
@@ -241,6 +268,13 @@ def headline(sc: dict, ui: dict | None, pay: dict | None, load: dict | None, sig
             bits.append("Checkout works")
         else:
             bits.append("Checkout broken")
+    if load:
+        regions = load.get("regions") or {}
+        n = len(regions)
+        survived = min((r.get("survived_users", 0) for r in regions.values()), default=0)
+        broke = [r["break_point_users"] for r in regions.values() if r.get("break_point_users")]
+        bits.append(f"Survived {survived} users{' per region' if n > 1 else ''}" + (f" from {n} regions" if n > 1 else "")
+                    + (f", broke at {min(broke)}" if broke else ""))
     if signup:
         if signup.get("success"):
             bits.append("Signup works")
@@ -248,6 +282,9 @@ def headline(sc: dict, ui: dict | None, pay: dict | None, load: dict | None, sig
             bits.append("Signup broken")
         else:
             bits.append("Signup not found")
+    if "chaos_double_submit" in kinds and (
+            "race_condition_exploit" in kinds or "signup_duplicate_collision" in kinds):
+        bits.append("UI debounce gap + backend race")
     if ui:
         n = len(dedupe_ui(ui.get("issues", [])))
         bits.append(f"{n} UI issue{'s' if n != 1 else ''}" if n else "No UI issues")
@@ -352,6 +389,29 @@ def render_html(run: dict, issues: list[dict], prompts: list[str], sc: dict, bit
                           f"<td>{s['p95_ms']}</td><td>{s['error_rate']:.1%}</td><td>{e(s.get('reason') or '')}</td></tr>")
     load_tbl = (f'<h2>Load test</h2><div class="tablewrap"><table><tr><th>Region</th><th>Users</th><th>Req/s</th><th>p50 ms</th>'
                 f'<th>p95 ms</th><th>Errors</th><th>Break</th></tr>{load_rows}</table></div>') if load_rows else ""
+    # Launch-day extras (burst / race / storm) — additive summary
+    launch_bits = []
+    load = run.get("load") or {}
+    for region, r in (load.get("regions") or {}).items():
+        b = r.get("burst")
+        if b:
+            launch_bits.append(
+                f"Burst {b.get('users')}× {e(str(b.get('path')))} "
+                f"{'THUNDERING HERD' if b.get('thundering_herd') else 'held'} ({e(region)})")
+    race = run.get("race") or load.get("race")
+    if race:
+        launch_bits.append(
+            f"Race {e(str(race.get('method')))} {e(str(race.get('path')))}: "
+            f"{race.get('successes')} success-shaped / {race.get('concurrency')}")
+    storm = run.get("signup_storm")
+    if storm:
+        launch_bits.append(
+            f"Signup storm n={storm.get('n')}: ok={storm.get('unique_ok')} "
+            f"dup_successes={storm.get('duplicate_successes')}")
+    launch_sec = ""
+    if launch_bits:
+        launch_sec = ("<h2>Launch day</h2><ul>" +
+                      "".join(f"<li>{b}</li>" for b in launch_bits) + "</ul>")
     pay_rows = "".join(f"<tr><td>{e(c['case'])}</td><td>{e(c['outcome'])}</td><td>{'' if c.get('unlocked') is None else ('yes' if c['unlocked'] else 'no')}</td>"
                        f"<td>{e(c.get('error_text') or '')}</td><td>{c.get('seconds', '')}s</td></tr>"
                        for c in (run.get("payments") or {}).get("cases", []))
@@ -365,9 +425,9 @@ def render_html(run: dict, issues: list[dict], prompts: list[str], sc: dict, bit
 <div class="hero"><div><h1>{e(site)}</h1><div class="muted">{e(run['url'])} · run {e(run.get('run_id') or '')} · {e(run.get('finished_at') or '')}</div>
 <div class="parts">{parts}</div>{skipped}<p>{e(' · '.join(bits))}</p>{appeal_html}</div><div class="big">{sc['total']}<small>/100</small></div></div>
 <h2>What broke ({len(issues)})</h2>{''.join(cards) or '<p>Nothing. Ship it.</p>'}
-{pay_tbl}{load_tbl}{share}
-<p class="muted" style="margin-top:40px">Launchproof ran a headless browser on phone and desktop, optional Chaos/Critic smart UI,
-a Stripe test-mode checkout, and a labeled load test (User-Agent LaunchproofLoadTest/1.0) against a site whose owner verified control of it.</p>
+{launch_sec}{pay_tbl}{load_tbl}{share}
+<p class="muted" style="margin-top:40px">Launchproof ran a headless browser on phone and desktop, optional scripted Chaos/Critic/personas,
+optional Stripe test checkout, and a labeled load test (User-Agent LaunchproofLoadTest/1.0) with optional synchronized burst and race probes.</p>
 </main></body></html>"""
 
 
@@ -400,8 +460,18 @@ async def build_report(run: dict, out_dir: Path, prompts_override: list[str] | N
     if pay:
         issues += pay.get("issues", [])
     issues += load_issues(load)
+    kinds = {i.get("kind") for i in issues}
+    if "chaos_double_submit" in kinds and (
+            "race_condition_exploit" in kinds or "signup_duplicate_collision" in kinds):
+        issues.append({
+            "severity": "high", "kind": "launch_cross_link",
+            "where": (run.get("url") or ""),
+            "detail": "UI allowed double submit and backend accepted concurrent success-shaped claims. "
+                      "Fix debounce and server idempotency together.",
+            "shot": None,
+        })
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    issues.sort(key=lambda i: order[i["severity"]])
+    issues.sort(key=lambda i: order.get(i.get("severity"), 9))
     if prompts_override is not None:
         if len(prompts_override) == len(issues):
             prompts = [str(p) for p in prompts_override]  # Brainbase agent rewrite from evidence

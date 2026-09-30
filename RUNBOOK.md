@@ -130,7 +130,26 @@ Janitor schedule is `is_active: false` until Fly is back. Tester hands off to Ch
 | `LP_SMART_UI_CREDITS` / `credit_soft_cap` | 40 | Soft credit stop for the smart-UI phase |
 | `LP_SMART_UI_BUDGET` | JSON | Override all four keys at once |
 
-Webapp start-run form has the same fields under “Smart UI budget”. Tiny smoke: set both chaos and vision to `1`. Local CLI marks `smart_ui: skipped` (agents only run on Brainbase).
+Webapp start-run form has the same fields under “Smart UI budget”. Tiny smoke: set both chaos and vision to `1`.
+
+**Launch-day concurrency flags** (defaults off — existing ramp behavior unchanged):
+```powershell
+python -m launchproof run https://SITE --token lp_... --i-understand-costs `
+  --smart-ui --signup-storm 10 --load-profile launch --burst-users 40 --session-mix `
+  --race-path /api/claim
+```
+| Flag | Meaning |
+|---|---|
+| `--smart-ui` | Local/scripted parallel Chaos+Critic+personas (`smart_ui_parallel`) |
+| `--signup-storm N` | Concurrent signups on discovered form action + same-email collision probe |
+| `--load-profile launch` | Spike/plateau/drop stages |
+| `--burst-users N` | Synchronized GET burst after ramp; `thundering_herd` if only burst breaks |
+| `--session-mix` | PH/HN referrers + weighted browse sessions |
+| `--race-path` | Opt-in mutating race (required; never auto-chosen) |
+
+Pitch note: Chaos/personas in `smart_ui_parallel` are **deterministic scripts**, not an LLM “reasoning” about the site. Agent handoffs remain optional orchestration theater.
+
+**Phase 7 (next build — not implemented):** reuse `run_race` against a discovered checkout/coupon path once payment journey discovery is extended. Stripe card-testing / webhook replay stay parked.
 
 **4d. Test in Brainbase chat**
 1. UI-only on your tunnel URL (heuristic UI + optional Chaos/Critic).

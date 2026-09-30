@@ -43,26 +43,25 @@ Then continue with the procedure. Never invent a different repo.
       `--regions sjc iad` (or whatever the requester asked). Then
       `python3 -m launchproof.load.fly list` must print nothing; if it lists machines, run
       `python3 -m launchproof.load.fly reap --max-age 0` and say so.
-4. **Smart UI (Chaos + Critic)** after the heuristic UI step, when budget allows.
+4. **Smart UI (Chaos + Critic + personas)** after the heuristic UI step, when budget allows.
    **Critical:** Brainbase handoffs do **not** pause this thread until the other agent replies.
    Never end your turn with "waiting for Chaos/Critic". Finish Smart UI in **this** turn.
 
    a. Resolve budget from the task message, or defaults
       (`max_chaos_scenarios=3`, `max_vision_views=4`, `max_pages_hint=5`, `credit_soft_cap=40`).
       If both chaos and vision caps are 0, skip Smart UI and record `smart_ui.status=skipped`.
-   b. Build `pages` from `runs/<id>/` UI results (unique URLs, up to `max_pages_hint`).
-   c. **Default (reliable): run Smart UI yourself in this sandbox** with the launchproof browser MCP:
-      - Chaos (up to `max_chaos_scenarios`): follow `brainbase/agents/chaos/skills/messy-human.md`
-        (rage-click CTA before idle, double submit, etc.). Produce `chaos_issues` + `interesting_states`.
-      - Critic (up to `max_vision_views`): follow `brainbase/agents/critic/skills/visual-appeal.md`.
-        Prefer interesting_states, else `pages`. Name the style, return `appeal_score` + `visual_issues`.
-      Call `browser_close` when done.
-   d. **Optional:** also hand off the same JSON payloads to Chaos/Critic agents for the orchestration
-      graph / demo — but do **not** block on them. If a handoff tool only returns a task id, ignore it
-      for scoring and keep your inline results.
-   e. Merge: write `runs/<id>/smart_ui.json` with budget, spent, appeal_score, style, issues.
-      Append `chaos_issues` and `visual_issues` into the UI issues list. Rebuild the report after step 5.
-   f. Do **not** use Anthropic for vision.
+   b. **Default (reliable):** run the deterministic parallel module (scripted Playwright, not LLM vision):
+      ```
+      python3 -m launchproof.smart_ui_parallel --url <url> --run-id <id> --out runs/<id>
+      ```
+      Optional: `--max-chaos N --max-vision N`. It runs Chaos + Critic + 3 personas in parallel contexts,
+      writes `smart_ui.json`, and rebuilds the report.
+   c. **Optional:** also hand off JSON payloads to Chaos/Critic agents for the orchestration graph /
+      demo — fire-and-forget only. Scoring truth is `smart_ui_parallel` / `smart_ui.json`.
+   d. Do **not** use Anthropic for vision.
+   e. For verified full runs, prefer launch-day load flags when the task asks:
+      `--load-profile launch --burst-users 50 --session-mix --signup-storm 10`
+      and `--race-path /api/claim` (or a path the requester supplied) — never invent a race path.
 5. **Better fix prompts.** Read `runs/<id>/report.json` (after merge). For each issue write one fix prompt
    (2 to 5 sentences) a founder can paste into Cursor, Lovable, Bolt or Claude Code: name the page, quote
    the evidence, say what done looks like. Save them as a JSON list in the same order to

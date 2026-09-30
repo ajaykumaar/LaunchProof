@@ -46,16 +46,17 @@ def task_message(url: str, run_id: str, token: str | None, full: bool, regions: 
     b = budget_from_env(budget)
     budget_line = format_budget_line(b)
     smart_line = (
-        f" After the heuristic UI check, run Smart UI within budget ({budget_line}): "
-        f"hand off to Chaos then Critic (prefer Chaos interesting_states for vision). "
-        f"Merge chaos_issues + visual_issues into the report, record smart_ui.budget/spent and "
-        f"appeal_score in report.json. Stop when caps hit. Do not use Anthropic for vision."
+        f" After the heuristic UI check, run scripted parallel Smart UI within budget ({budget_line}): "
+        f"`python3 -m launchproof.smart_ui_parallel --url {url} --run-id {run_id} --out runs/{run_id}` "
+        f"(Chaos+Critic+personas in parallel Playwright contexts; not LLM vision). "
+        f"Optional fire-and-forget handoffs to Chaos/Critic agents are orchestration theater only — "
+        f"scoring truth is smart_ui.json. Stop when caps hit. Do not use Anthropic for vision."
         if smart_ui_enabled(b)
         else f" Smart UI is disabled ({budget_line}); skip Chaos/Critic."
     )
     if not full:
         return (f"Run a UI-only Launchproof check on {url}. Use run id {run_id}: "
-                f"`python3 -m launchproof run {url} --skip-pay --skip-load --run-id {run_id}`. "
+                f"`python3 -m launchproof run {url} --skip-pay --skip-load --smart-ui --run-id {run_id}`. "
                 f"{smart_line} Then reply with the summary.")
     if not token:
         # Never embed the string "None" as --token; fall back to UI-only so ownership stays enforced.
@@ -67,7 +68,9 @@ def task_message(url: str, run_id: str, token: str | None, full: bool, regions: 
     return (f"Run a full Launchproof test on {url} with ownership token {token}. Use run id {run_id}. "
             f"First record the journey to checkout with your launchproof browser tools and save it as journey.json, "
             f"then call browser_close, then run `python3 -m launchproof run {url} --token {token} "
-            f"--journey journey.json{fly_flags} --i-understand-costs --run-id {run_id}`"
+            f"--journey journey.json{fly_flags} --i-understand-costs --smart-ui --signup-storm 10 "
+            f"--load-profile launch --burst-users 40 --session-mix --run-id {run_id}` "
+            f"(add `--race-path <path>` only if the requester supplied a shared-resource path; never invent one)"
             f"{'' if use_fly else ' (omit --regions: load runs in this sandbox until Fly credentials are set)'}. "
             f"{smart_line} Rewrite the fix prompts, rebuild the report, hand off to triage, and reply with the summary.")
 
@@ -123,18 +126,29 @@ def list_files(thread_id: str, path: str = "") -> list[dict]:
 
 def _shot_names_from_json(data: dict) -> set[str]:
     names: set[str] = set()
+
+    def add_shot(v):
+        if isinstance(v, str) and v.endswith((".png", ".jpg", ".jpeg", ".webp")):
+            names.add(v)
+
     for i in data.get("issues") or []:
-        if isinstance(i, dict) and i.get("shot"):
-            names.add(str(i["shot"]))
+        if isinstance(i, dict):
+            add_shot(i.get("shot"))
     ui = data.get("ui") or {}
     for p in ui.get("pages") or []:
-        if isinstance(p, dict) and p.get("screenshot"):
-            names.add(str(p["screenshot"]))
+        if isinstance(p, dict):
+            add_shot(p.get("screenshot"))
     for i in ui.get("issues") or []:
-        if isinstance(i, dict) and i.get("shot"):
-            names.add(str(i["shot"]))
+        if isinstance(i, dict):
+            add_shot(i.get("shot"))
     for s in (data.get("signup") or {}).get("screenshots") or []:
-        names.add(str(s))
+        add_shot(s)
+    smart = data.get("smart_ui") or ui.get("smart_ui") or {}
+    if isinstance(smart, dict):
+        for key in ("chaos_issues", "visual_issues", "persona_issues"):
+            for i in smart.get(key) or []:
+                if isinstance(i, dict):
+                    add_shot(i.get("shot"))
     return names
 
 

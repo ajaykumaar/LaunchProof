@@ -46,7 +46,9 @@ def run_args(url: str, **kw) -> argparse.Namespace:
     defaults = dict(url=url, token=None, out="runs", run_id=None, max_pages=12, skip_ui=False, skip_pay=False,
                     skip_load=False, skip_signup=False, no_agent=False, unlock_selector=None, stripe_key=None, regions=None,
                     load_paths=None, stages="10,25,50,100,200,400,800", stage_seconds=30.0, think=(1.0, 3.0),
-                    report_link=None, i_understand_costs=True, journey=None)
+                    report_link=None, i_understand_costs=True, journey=None, smart_ui=False,
+                    load_profile="ramp", burst_users=None, burst_path="/", session_mix=False,
+                    race_path=None, race_method="POST", race_body=None, signup_storm=0)
     defaults.update(kw)
     return argparse.Namespace(**defaults)
 
@@ -72,23 +74,43 @@ async def run(a) -> dict:
         _say("UI check: crawling on phone and desktop")
         ui = await run_ui_check(url, out, max_pages=a.max_pages if verified else min(a.max_pages, 20),
                                 delay_s=0.3 if verified else 1.0, respect_robots=not verified)
-        # Local CLI has no Chaos/Critic sandboxes; mark smart UI skipped (Brainbase path merges later).
-        record["ui"] = merge_into_ui(ui.to_dict(), skipped_payload())
-        record["smart_ui"] = record["ui"].get("smart_ui")
-        _say(f"UI check: {len(ui.pages) // 2} pages, {len(ui.issues)} findings (smart UI: skipped on local CLI)")
+        if getattr(a, "smart_ui", False):
+            from .smart_ui_parallel import run_smart_ui_parallel
+            _say("smart UI: parallel Chaos + Critic + personas")
+            smart = await run_smart_ui_parallel(
+                url, out, pages=[p["url"] for p in ui.to_dict().get("pages") or [] if p.get("url")])
+            record["ui"] = merge_into_ui(ui.to_dict(), smart)
+            record["smart_ui"] = record["ui"].get("smart_ui")
+            _say(f"UI check: {len(ui.pages) // 2} pages, {len(record['ui'].get('issues') or [])} findings "
+                 f"(smart UI: {smart.get('status')})")
+        else:
+            record["ui"] = merge_into_ui(ui.to_dict(), skipped_payload())
+            record["smart_ui"] = record["ui"].get("smart_ui")
+            _say(f"UI check: {len(ui.pages) // 2} pages, {len(ui.issues)} findings (smart UI: skipped)")
 
     if not getattr(a, "skip_signup", False):
         from .signup_check import run_signup_check
         _say("signup check: finding create-account flow")
         su = await run_signup_check(url, out, run_id=run_id)
         record["signup"] = su.to_dict()
-        # Fold signup into the UI bucket (create a minimal UI blob if UI was skipped).
         if record.get("ui") is None:
             record["ui"] = {"issues": list(su.issues), "pages": [], "start_url": url}
         elif su.issues:
             record["ui"] = dict(record["ui"])
             record["ui"]["issues"] = list(record["ui"].get("issues") or []) + su.issues
         _say(f"signup check: reached_form={su.reached_form} success={su.success} issues={len(su.issues)}")
+
+        storm_n = int(getattr(a, "signup_storm", 0) or 0)
+        if verified and storm_n > 0 and (su.action_url or su.signup_url):
+            from .signup_storm import run_signup_storm
+            action = su.action_url or su.signup_url
+            _say(f"signup storm: {storm_n} concurrent POSTs → {action}")
+            storm = await run_signup_storm(action, n=storm_n, run_id=run_id)
+            record["signup_storm"] = storm.to_dict()
+            if storm.issues:
+                record["ui"] = dict(record["ui"] or {"issues": [], "pages": [], "start_url": url})
+                record["ui"]["issues"] = list(record["ui"].get("issues") or []) + storm.issues
+            _say("signup storm: " + (storm.log[-1] if storm.log else "done"))
 
     if not a.skip_pay:
         from .payment import run_payment_check
@@ -137,14 +159,53 @@ async def run(a) -> dict:
             res["combined"] = combine(res["regions"])
             record["load"] = res
         else:
-            from .load.engine import LoadConfig, run_load
-            _say(f"load test from this machine · paths {paths}")
+            from .load.engine import LoadConfig, run_load, launch_stages
+            profile = getattr(a, "load_profile", "ramp") or "ramp"
+            stages = [int(x) for x in a.stages.split(",")]
+            if profile == "launch" and a.stages == "10,25,50,100,200,400,800":
+                stages = launch_stages()
+            _say(f"load test from this machine · profile={profile} · paths {paths}"
+                 + (f" · burst={a.burst_users}" if getattr(a, "burst_users", None) else ""))
             cfg = LoadConfig(url=url, paths=paths, stages=stages, stage_seconds=a.stage_seconds, run_id=run_id,
-                             think_min=a.think[0], think_max=a.think[1])
+                             think_min=a.think[0], think_max=a.think[1],
+                             burst_users=getattr(a, "burst_users", None),
+                             burst_path=getattr(a, "burst_path", "/") or "/",
+                             profile=profile,
+                             session_mix=bool(getattr(a, "session_mix", False)))
             r = await run_load(cfg, on_stage=lambda s: _say(
                 f"  {s.users:>4} users  {s.rps:>6} rps  p95 {s.p95_ms} ms  errors {s.error_rate:.1%}"
                 + (f"  BROKE: {s.reason}" if s.broke else "")))
-            record["load"] = {"run_id": run_id, "regions": {"local": r}, "errors": {}}
+            record["load"] = {"run_id": run_id, "regions": {"local": r}, "errors": {},
+                              "issues": list(r.get("issues") or [])}
+            if r.get("issues"):
+                record["ui"] = dict(record.get("ui") or {"issues": [], "pages": [], "start_url": url})
+                record["ui"]["issues"] = list(record["ui"].get("issues") or []) + r["issues"]
+
+        race_path = getattr(a, "race_path", None)
+        if verified and race_path:
+            from .load.engine import run_race
+            body = None
+            raw = getattr(a, "race_body", None)
+            if raw:
+                try:
+                    body = json.loads(raw)
+                except json.JSONDecodeError:
+                    body = None
+            _say(f"race probe: {getattr(a, 'race_method', 'POST')} {race_path}")
+            race = await run_race(url, race_path, method=getattr(a, "race_method", "POST") or "POST",
+                                  json_body=body if isinstance(body, dict) else None,
+                                  form_body=None if body else {"code": "launch"},
+                                  concurrency=20, run_id=run_id)
+            record["race"] = race
+            if record.get("load") is not None:
+                record["load"] = dict(record["load"])
+                record["load"]["race"] = {k: race[k] for k in ("path", "method", "concurrency",
+                                                               "successes", "fails", "ambiguous", "errors")}
+                record["load"]["issues"] = list(record["load"].get("issues") or []) + list(race.get("issues") or [])
+            if race.get("issues"):
+                record["ui"] = dict(record.get("ui") or {"issues": [], "pages": [], "start_url": url})
+                record["ui"]["issues"] = list(record["ui"].get("issues") or []) + race["issues"]
+            _say(f"race: successes={race['successes']} fails={race['fails']} issues={len(race.get('issues') or [])}")
         for region, e in record["load"].get("errors", {}).items():
             _say(f"  load error in {region}: {e}")
 
@@ -199,6 +260,21 @@ def main(argv=None) -> int:
     r.add_argument("--report-link", help="public URL of the report, for the Slack message")
     r.add_argument("--i-understand-costs", action="store_true",
                    help="acknowledge that load tests create real traffic and may cost the site owner bandwidth")
+    r.add_argument("--smart-ui", action="store_true",
+                   help="run parallel Chaos+Critic+personas after the UI crawl (scripted, local Playwright)")
+    r.add_argument("--load-profile", choices=("ramp", "launch"), default="ramp",
+                   help="launch = spike/plateau/drop stages when --stages is left at default")
+    r.add_argument("--burst-users", type=int, default=None,
+                   help="after ramp, fire N synchronized GETs (thundering-herd probe)")
+    r.add_argument("--burst-path", default="/")
+    r.add_argument("--session-mix", action="store_true",
+                   help="weighted browse sessions with PH/HN referrers instead of random path GETs")
+    r.add_argument("--race-path", default=None,
+                   help="opt-in concurrent mutating probe path (e.g. /api/claim); never auto-chosen")
+    r.add_argument("--race-method", default="POST")
+    r.add_argument("--race-body", default=None, help="JSON body for race probe; default sends form code=launch")
+    r.add_argument("--signup-storm", type=int, default=0,
+                   help="after signup check, N concurrent unique signups + same-email collision probe")
     rb = sub.add_parser("report", help="rebuild report.html/report.json from a run folder, optionally with new fix prompts")
     rb.add_argument("run_dir")
     rb.add_argument("--prompts", help="JSON list of fix prompts, same order as report.json issues")

@@ -11,10 +11,19 @@ Planted bugs (heuristic UI still catches these):
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+import asyncio
+import os
 
 app = FastAPI(title="Stackbolt")
+
+# Shared-resource claim (intentionally racy by default so Launchproof race probe can demo a finding).
+# Set LP_CLAIM_SAFE=1 for a locked single-winner implementation.
+_claim_holder: str | None = None
+_claim_lock = asyncio.Lock()
+_accounts: dict[str, str] = {}
+_accounts_lock = asyncio.Lock()
 
 CSS = """
 :root {
@@ -226,8 +235,7 @@ def about():
 def signup():
     body = """
     <h1 class="section-title">Create your account</h1>
-    <form class="card" style="max-width:420px" method="get" action="/signup" id="signup-form"
-      onsubmit="event.preventDefault(); var m=document.getElementById('signup-ok'); m.hidden=false; m.setAttribute('data-lp-signup','ok');">
+    <form class="card" style="max-width:420px" method="post" action="/api/signup" id="signup-form">
       <label style="display:block;margin:8px 0 4px;font-size:13px">Email</label>
       <input name="email" type="email" required placeholder="you@launch.dev"
         style="width:100%;border:var(--line);padding:12px;font:inherit;box-shadow:3px 3px 0 var(--ink)">
@@ -238,9 +246,70 @@ def signup():
         <button class="btn" type="submit">Sign up</button>
         <button class="btn ghost" type="submit">Sign up again (chaos bait)</button>
       </div>
-      <p id="signup-ok" hidden style="margin-top:14px;font-family:Arial,Helvetica,sans-serif;font-weight:600">
-        Fake signup accepted. Welcome aboard — check your inbox.
-      </p>
     </form>
     """
     return page("Sign up · Stackbolt", body)
+
+
+@app.post("/api/signup")
+async def api_signup(request: Request, email: str = Form(...), password: str = Form(...)):
+    """Create-account endpoint for Playwright signup check + httpx signup storm."""
+    email_n = email.strip().lower()
+    want_json = "application/json" in (request.headers.get("accept") or "")
+    async with _accounts_lock:
+        if email_n in _accounts:
+            if want_json:
+                return JSONResponse({"status": "already_exists", "email": email_n,
+                                     "message": "account already exists"}, status_code=409)
+            return HTMLResponse(
+                page("Sign up · Stackbolt",
+                     '<div class="card"><p>Account already exists. Try logging in.</p></div>'),
+                status_code=409)
+        # Tiny yield so concurrent storms can race if lock were absent; lock keeps this correct.
+        await asyncio.sleep(0.01)
+        _accounts[email_n] = password
+    if want_json:
+        return JSONResponse({"status": "created", "email": email_n,
+                             "message": "account created welcome aboard"}, status_code=201)
+    body = """
+    <div class="card" style="max-width:420px" data-lp-signup="ok">
+      <p style="font-family:Arial,Helvetica,sans-serif;font-weight:600">
+        Fake signup accepted. Welcome aboard — check your inbox.
+      </p>
+      <a class="btn" href="/">Back home</a>
+    </div>
+    """
+    return HTMLResponse(page("Welcome · Stackbolt", body), status_code=201)
+
+
+@app.post("/api/claim")
+async def api_claim(request: Request, code: str = Form("launch")):
+    """Single-seat claim. Default is intentionally racy (no lock) for race-probe demos."""
+    global _claim_holder
+    want_json = "application/json" in (request.headers.get("accept") or "")
+    safe = os.getenv("LP_CLAIM_SAFE", "").strip() in ("1", "true", "yes")
+
+    async def _win(who: str):
+        global _claim_holder
+        if _claim_holder is not None:
+            payload = {"status": "already_claimed", "holder": _claim_holder, "message": "seat already taken"}
+            return (JSONResponse(payload, status_code=409) if want_json
+                    else JSONResponse(payload, status_code=409))
+        await asyncio.sleep(0.05)  # widen race window when unlocked
+        _claim_holder = who
+        payload = {"status": "claimed", "holder": who, "message": "seat claimed successfully"}
+        return JSONResponse(payload, status_code=201)
+
+    who = (request.headers.get("x-launchproof-vu") or code or "anon").strip()
+    if safe:
+        async with _claim_lock:
+            return await _win(who)
+    return await _win(who)
+
+
+@app.post("/api/claim/reset")
+async def api_claim_reset():
+    global _claim_holder
+    async with _claim_lock:
+        _claim_holder = None
+    return {"status": "ok"}

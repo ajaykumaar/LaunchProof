@@ -20,6 +20,9 @@ Run scenarios in this order. Stop when `max_chaos_scenarios` is reached even if 
 
 Severity: critical (data corruption / crash), high (duplicate side effects), medium (broken UX under race), low (cosmetic flicker).
 
+## Server-side races (not this skill)
+Double-click debounce is a **UI** check. It cannot prove server idempotency — one Playwright browser cannot fire two byte-identical requests in the same millisecond. Backend races belong to `python -m launchproof` load probes (`--race-path`, `--signup-storm`). When both fire, the report cross-links them.
+
 ## Interesting states
 After each scenario that produced an odd screen, append:
 `{ "url", "viewport": "desktop"|"phone", "why", "evidence" }`

@@ -31,6 +31,7 @@ class SignupReport:
     success: bool = False
     validation_ok: bool = False  # empty submit shows required/invalid feedback
     signup_url: str | None = None
+    action_url: str | None = None  # form action for httpx signup storm
     detail: str = ""
     screenshots: list[str] = field(default_factory=list)
     issues: list[dict] = field(default_factory=list)
@@ -166,6 +167,18 @@ async def run_signup_check(start_url: str, out_dir: Path, run_id: str = "signup"
             await page.goto(target, wait_until="load", timeout=20000)
             await settle(page)
             await _shot(page, out_dir, "signup-form.png", res.screenshots)
+            try:
+                action = await page.eval_on_selector(
+                    "form",
+                    """f => {
+                      const a = (f.getAttribute('action') || '').trim();
+                      if (!a || a === '#') return location.href;
+                      try { return new URL(a, location.href).href; } catch { return location.href; }
+                    }""")
+                res.action_url = action
+                res.log.append(f"form action={action}")
+            except Exception:
+                res.action_url = target
 
             # Validation: empty submit should show required/invalid feedback (HTML5 or custom).
             clicked_empty = await _click_primary_submit(page)
